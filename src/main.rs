@@ -48,6 +48,13 @@ fn parse_graph(path: &str) -> PolyGraph {
     g
 }
 
+fn write_orientations(g: &PolyGraph, path: &str) {
+    let mut file = File::create(path).unwrap();
+    for q in g.node_weights() {
+        writeln!(&mut file, "{} {} {} {}", q.w, q.i, q.j, q.k).unwrap();
+    }
+}
+
 fn random_orientation(rng: &mut impl Rng) -> Orientation {
     let a = rng.gen_range(0.0..PI*2.0);
     let y = rng.gen_range(-1.0..1.0);
@@ -202,8 +209,8 @@ impl Histogram {
         self.heights[idx] += aa.area;
     }
 
-    pub fn extend_from_slice(&mut self, other: &[AngleArea]) {
-        for &aa in other {
+    pub fn add_from_slice(&mut self, aa_slice: &[AngleArea]) {
+        for &aa in aa_slice {
             self.add(aa);
         }
     }
@@ -387,7 +394,7 @@ fn main() {
         g.edge_weights().map(|e| e.area).sum::<f64>() * hist.bar_len()
     );
     let aa = angle_area_vec(&g);
-    hist.extend_from_slice(&aa);
+    hist.add_from_slice(&aa);
     // let mut file = File::create("hist.txt").unwrap();
     // for (angle, height) in hist.pairs() {
     //     println!("{} {}", angle.to_degrees(), height);
@@ -410,4 +417,6 @@ fn main() {
     // for angle in (0..30).map(|i| (i as f64 + 0.5) * (hist_end - hist_beg) / 30.0) {
     //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), lognorm.pdf(angle).to_radians()).unwrap();
     // }
+
+    write_orientations(&g, "orientations.out");
 }
