@@ -191,7 +191,7 @@ struct Histogram {
 impl Histogram {
     pub fn new(beg: f64, end: f64, bars: usize) -> Self {
         let hs = vec![0.0; bars];
-        Histogram{ 
+        Histogram { 
             beg, end, heights: hs, 
             find_bar_coef: bars as f64 / (end - beg),
         }
@@ -208,24 +208,6 @@ impl Histogram {
         }
     }
 
-    // pub fn extend_with_sorted_pairs(&mut self, aa: &Vec<AngleArea>) -> &mut Self {
-    //     let (beg, bars) = (self.beg, self.bars());
-    //     let d = self.bar_len();
-    //     let mut i = 0;
-    //     let mut ie = beg + d;
-    //     for &AngleArea{ angle, area } in aa {
-    //         if angle > ie {
-    //             if i < bars - 1 {
-    //                 i += 1;
-    //             }
-    //             ie += d;
-    //         }
-    //         self.heights[i] += area;
-    //     }
-
-    //     self
-    // }
-
     pub fn bars(&self) -> usize {
         self.heights.len()
     }
@@ -241,24 +223,6 @@ impl Histogram {
     pub fn area(&self) -> f64 {
         self.total_height() * self.bar_len()
     }
-
-    // inefficent
-    // pub fn bar_idx(&self, angle: f64) -> usize {
-    //     let (b, bars) = (self.beg, self.bars());
-    //     let d = self.bar_len();
-    //     let mut ie = b + d;
-    //     let mut i = 0;
-    //     for _ in 0..bars {
-    //         if angle < ie {
-    //             break;
-    //         }
-    //         if i < bars - 1 {
-    //             i += 1;
-    //         }
-    //         ie += d;
-    //     }
-    //     i
-    // }
 
     pub fn bar_idx(&self, angle: f64) -> usize {
         let i = ((angle - self.beg) * self.find_bar_coef) as usize;
