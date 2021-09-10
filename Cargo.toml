@@ -12,3 +12,4 @@ rand = "0.8.4"
 rand_pcg = "0.3.1"
 statrs = "0.15"
 nalgebra = "0.29"
+bumpalo = { version = "3.7", features = ["collections"] }

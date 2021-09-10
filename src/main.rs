@@ -8,6 +8,7 @@ use na::{Matrix3, Rotation3, UnitQuaternion, Vector3};
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
 use statrs::distribution::LogNormal as StatLogNormal;
+use bumpalo::{Bump, vec as bump_vec, collections::Vec as BumpVec};
 use std::{f64::consts::PI, vec};
 use std::fs::File;
 use std::io::Write;
@@ -147,21 +148,25 @@ fn update_angle(
     prev_angle
 }
 
-fn update_grain_angles(
-    g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
-) -> Vec<f64> {
-    // can be optimized using custom allocator
-    let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
-    let mut prev_angles = Vec::with_capacity(edges.len());
+fn update_grain_angles<'bump>(
+    g: &mut PolyGraph, n: NodeIndex, 
+    syms: &Vec<Orientation>, bump: &'bump Bump
+) -> BumpVec<'bump, f64> {
+    let edges_iter = g.edges(n).map(|e| e.id());
+    let edges = BumpVec::from_iter_in(edges_iter, bump);
+    let mut prev_angles = BumpVec::with_capacity_in(edges.len(), bump);
     for e in edges {
         prev_angles.push(update_angle(g, e, syms));
     }
     prev_angles
 }
 
-fn restore_grain_angles(g: &mut PolyGraph, n: NodeIndex, prev_angles: Vec<f64>) {
-    // can be optimized using custom allocator
-    let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
+fn restore_grain_angles<'bump>(
+    g: &mut PolyGraph, n: NodeIndex, 
+    prev_angles: BumpVec<'bump, f64>, bump: &Bump
+) {
+    let edges_iter = g.edges(n).map(|e| e.id());
+    let edges = BumpVec::from_iter_in(edges_iter, bump);
     for (&e, a) in edges.iter().zip(prev_angles) {
         g[e].angle = a;
     }
@@ -283,10 +288,10 @@ impl Histogram {
         }
     }
 
-    pub fn update_with_2grains_new_angles(
+    pub fn update_with_2grains_new_angles<'bump>(
         &mut self, g: &PolyGraph, 
         n1: NodeIndex, n2: NodeIndex, 
-        prev_angles1: &Vec<f64>, prev_angles2: &Vec<f64>,
+        prev_angles1: &BumpVec<'bump, f64>, prev_angles2: &BumpVec<'bump, f64>,
     ) -> Histogram {
         let prev_hist = self.clone();
         for (e, &pa) in g.edges(n1).zip(prev_angles1) {
@@ -342,7 +347,7 @@ fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
 
 fn iterate(
     g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
-    rng: &mut impl Rng, f: impl Fn(f64) -> f64
+    rng: &mut impl Rng, f: impl Fn(f64) -> f64, bump: &Bump
 ) -> Option<f64> {
 
     let distr = RandUniform::new(0, g.node_count() as u32);
@@ -355,8 +360,8 @@ fn iterate(
     };
     
     swap_ori(g, n1, n2);
-    let prev_angles1 = update_grain_angles(g, n1, syms);
-    let prev_angles2 = update_grain_angles(g, n2, syms);
+    let prev_angles1 = update_grain_angles(g, n1, syms, bump);
+    let prev_angles2 = update_grain_angles(g, n2, syms, bump);
     let prev_hist = hist.update_with_2grains_new_angles(
         g, n1, n2, &prev_angles1, &prev_angles2
     );
@@ -368,8 +373,8 @@ fn iterate(
     } else {
         *hist = prev_hist;
         swap_ori(g, n1, n2);
-        restore_grain_angles(g, n1, prev_angles1);
-        restore_grain_angles(g, n2, prev_angles2);
+        restore_grain_angles(g, n1, prev_angles1, bump);
+        restore_grain_angles(g, n2, prev_angles2, bump);
         None
     }
 }
@@ -406,10 +411,12 @@ fn main() {
     let uni = StatUniform::new(hist_beg, hist_end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
     
+    let mut bump = Bump::with_capacity(1 << 20);
     for i in 0..3_000_000 {
-        if let Some(dnorm) = iterate(&mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)) {
+        if let Some(dnorm) = iterate(&mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x), &bump) {
             println!("iter {}, norm {}", i, dnorm);
         }
+        bump.reset();
     }
 
     let mut file = File::create("hist.txt").unwrap();
