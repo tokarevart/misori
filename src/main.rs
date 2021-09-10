@@ -150,7 +150,6 @@ fn update_angle(
 fn update_grain_angles(
     g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
 ) -> Vec<f64> {
-    // can be optimized using custom allocator
     let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
     let mut prev_angles = Vec::with_capacity(edges.len());
     for e in edges {
@@ -160,7 +159,6 @@ fn update_grain_angles(
 }
 
 fn restore_grain_angles(g: &mut PolyGraph, n: NodeIndex, prev_angles: Vec<f64>) {
-    // can be optimized using custom allocator
     let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
     for (&e, a) in edges.iter().zip(prev_angles) {
         g[e].angle = a;
