@@ -243,8 +243,7 @@ impl Histogram {
 
     pub fn bar_idx(&self, angle: f64) -> usize {
         let i = ((angle - self.beg) * self.find_bar_coef) as usize;
-        // if i == n { n - 1 } else { i } // not sure about this
-        i
+        i.min(self.bars() - 1)
     }
 
     pub fn ratiolize_mut(&mut self) -> &mut Self {
