@@ -11,6 +11,7 @@ use statrs::distribution::LogNormal as StatLogNormal;
 use std::{f64::consts::PI, vec};
 use std::fs::File;
 use std::io::Write;
+use std::time::Instant;
 
 type Orientation = UnitQuaternion<f64>;
 type PolyGraph = UnGraph<Orientation, AngleArea>;
@@ -158,6 +159,15 @@ fn update_grain_angles(
     prev_angles
 }
 
+fn update_grain_angles_noret(
+    g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
+) {
+    let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
+    for e in edges {
+        update_angle(g, e, syms);
+    }
+}
+
 fn restore_grain_angles(g: &mut PolyGraph, n: NodeIndex, prev_angles: Vec<f64>) {
     let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
     for (&e, a) in edges.iter().zip(prev_angles) {
@@ -281,6 +291,27 @@ impl Histogram {
         }
     }
 
+    pub fn update_with_grain_new_angles(
+        &mut self, g: &PolyGraph, 
+        n: NodeIndex, prev_angles: &Vec<f64>
+    ) -> Histogram {
+        let prev_hist = self.clone();
+        for (e, &pa) in g.edges(n).zip(prev_angles) {
+            self.update_with_edge_new_angle(*e.weight(), pa);
+        }
+
+        prev_hist
+    }
+
+    pub fn update_with_grain_new_angles_noret(
+        &mut self, g: &PolyGraph, 
+        n: NodeIndex, prev_angles: &Vec<f64>
+    ) {
+        for (e, &pa) in g.edges(n).zip(prev_angles) {
+            self.update_with_edge_new_angle(*e.weight(), pa);
+        }
+    }
+
     pub fn update_with_2grains_new_angles(
         &mut self, g: &PolyGraph, 
         n1: NodeIndex, n2: NodeIndex, 
@@ -338,7 +369,7 @@ fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
     g[n2] = gn1;
 }
 
-fn iterate(
+fn iterate_swaps(
     g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
     rng: &mut impl Rng, f: impl Fn(f64) -> f64
 ) -> Option<f64> {
@@ -368,6 +399,48 @@ fn iterate(
         swap_ori(g, n1, n2);
         restore_grain_angles(g, n1, prev_angles1);
         restore_grain_angles(g, n2, prev_angles2);
+        None
+    }
+}
+
+fn rotate_randomly(g: &mut PolyGraph, n: NodeIndex, rng: &mut impl Rng) {
+    g[n] = random_orientation(rng) * g[n];
+}
+
+fn iterate_monte_carlo(
+    g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
+    rng: &mut impl Rng, f: impl Fn(f64) -> f64
+) -> Option<f64> {
+
+    const MAX_ROTS: usize = 4;
+
+    let distr = RandUniform::new(0, g.node_count() as u32);
+    let n: NodeIndex = rng.sample(distr).into();
+    
+    let prev_ori = g[n];
+    rotate_randomly(g, n, rng);
+    g[n] = random_orientation(rng) * g[n];
+    let prev_angles = update_grain_angles(g, n, syms);
+    let prev_hist = hist.update_with_grain_new_angles(g, n, &prev_angles);
+
+    let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
+    let dnorm = diff_norm(hist, |x| f(x));
+    if dnorm < prev_dnorm {
+        Some(dnorm)
+    } else {
+        for _ in 0..MAX_ROTS - 1 {
+            rotate_randomly(g, n, rng);
+            let prev_angles = update_grain_angles(g, n, syms);
+            hist.update_with_grain_new_angles_noret(g, n, &prev_angles);
+            let dnorm = diff_norm(hist, |x| f(x));
+            if dnorm < prev_dnorm {
+                return Some(dnorm);
+            }
+        }
+
+        *hist = prev_hist;
+        g[n] = prev_ori;
+        restore_grain_angles(g, n, prev_angles);
         None
     }
 }
@@ -403,12 +476,43 @@ fn main() {
 
     let uni = StatUniform::new(hist_beg, hist_end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
+
+    let lognorn_stop = 0.0856;
     
+    // let now = Instant::now();
+    // for i in 0..3_000_000 {
+    //     if let Some(dnorm) = iterate_swaps(
+    //         &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
+    //     ) {
+    //         // println!("iter {}, norm {}", i, dnorm);
+    //         if dnorm < lognorn_stop {
+    //             break
+    //         }
+    //     }
+    // }
+    // println!(
+    //     "swap alg time:        {}, norm {}", 
+    //     now.elapsed().as_secs_f64(), diff_norm(&mut hist, |x| lognorm.pdf(x))
+    // );
+
+    let now = Instant::now();
     for i in 0..3_000_000 {
-        if let Some(dnorm) = iterate(&mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)) {
-            println!("iter {}, norm {}", i, dnorm);
+        if let Some(dnorm) = iterate_monte_carlo(
+            &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
+        ) {
+            // println!("iter {}, norm {}", i, dnorm);
+            if dnorm < lognorn_stop {
+                break
+            }
+            // if dnorm < 0.79861 { // uniform test
+            //     break
+            // }
         }
     }
+    println!(
+        "monte-carlo alg time: {}, norm {}", 
+        now.elapsed().as_secs_f64(), diff_norm(&mut hist, |x| lognorm.pdf(x))
+    );
 
     let mut file = File::create("hist.txt").unwrap();
     for (angle, height) in hist.pairs() {
