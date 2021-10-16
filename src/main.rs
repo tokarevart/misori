@@ -406,7 +406,7 @@ fn rotate_randomly(g: &mut PolyGraph, n: NodeIndex, rng: &mut impl Rng) {
     g[n] = random_orientation(rng) * g[n];
 }
 
-fn iterate_monte_carlo(
+fn iterate_rotations(
     g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
     rng: &mut impl Rng, f: impl Fn(f64) -> f64
 ) -> Option<f64> {
@@ -490,13 +490,13 @@ fn main() {
     //     }
     // }
     // println!(
-    //     "swap alg time:        {}, norm {}", 
+    //     "swaps alg time:        {}, norm {}", 
     //     now.elapsed().as_secs_f64(), diff_norm(&mut hist, |x| lognorm.pdf(x))
     // );
 
     let now = Instant::now();
     for i in 0..3_000_000 {
-        if let Some(dnorm) = iterate_monte_carlo(
+        if let Some(dnorm) = iterate_rotations(
             &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
         ) {
             // println!("iter {}, norm {}", i, dnorm);
@@ -509,7 +509,7 @@ fn main() {
         }
     }
     println!(
-        "monte-carlo alg time: {}, norm {}", 
+        "rotations alg time: {}, norm {}", 
         now.elapsed().as_secs_f64(), diff_norm(&mut hist, |x| lognorm.pdf(x))
     );
 
