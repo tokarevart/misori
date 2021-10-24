@@ -402,10 +402,6 @@ fn iterate_swaps(
     }
 }
 
-fn rotate_randomly(g: &mut PolyGraph, n: NodeIndex, rng: &mut impl Rng) {
-    g[n] = random_orientation(rng) * g[n];
-}
-
 fn iterate_rotations(
     g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
     rng: &mut impl Rng, f: impl Fn(f64) -> f64
@@ -417,8 +413,7 @@ fn iterate_rotations(
     let n: NodeIndex = rng.sample(distr).into();
     
     let prev_ori = g[n];
-    rotate_randomly(g, n, rng);
-    g[n] = random_orientation(rng) * g[n];
+    g[n] = random_orientation(rng);
     let prev_angles = update_grain_angles(g, n, syms);
     let prev_hist = hist.update_with_grain_new_angles(g, n, &prev_angles);
 
@@ -428,7 +423,7 @@ fn iterate_rotations(
         Some(dnorm)
     } else {
         for _ in 0..MAX_ROTS - 1 {
-            rotate_randomly(g, n, rng);
+            g[n] = random_orientation(rng);
             let prev_angles = update_grain_angles(g, n, syms);
             hist.update_with_grain_new_angles_noret(g, n, &prev_angles);
             let dnorm = diff_norm(hist, |x| f(x));
