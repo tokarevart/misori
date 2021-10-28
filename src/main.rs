@@ -8,6 +8,7 @@ use na::{Matrix3, Rotation3, UnitQuaternion, Vector3};
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
 use statrs::distribution::LogNormal as StatLogNormal;
+use core::num;
 use std::{f64::consts::PI, vec};
 use std::fs::File;
 use std::io::Write;
@@ -439,7 +440,174 @@ fn iterate_rotations(
     }
 }
 
+fn min_ang_norm(hist: &Histogram, min_ang: f64) -> f64 {
+    let shifted_min_ang = min_ang + hist.bar_len() * 0.5;
+    hist.pairs()
+        .take_while(|&(a, _)| a < shifted_min_ang)
+        .map(|(_, d)| d.powi(2))
+        .sum::<f64>().sqrt()
+        // .map(|(a, d)| {
+        //     let fa = f(a);
+        //     ((fa - d) / (1.0 + fa + d)).abs()
+        //     // ((fa - d) / (fa + d)).abs()
+        //     // (fa - d).abs()
+        // })
+        // .max_by(|&x, &y| x.partial_cmp(&y).unwrap())
+        // .unwrap()
+}
+
+fn iterate_min_ang(
+    g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
+    rng: &mut impl Rng, min_ang: f64
+) -> Option<f64> {
+
+    let distr = RandUniform::new(0, g.node_count() as u32);
+    let n1: NodeIndex = rng.sample(distr).into();
+    let n2: NodeIndex = loop {
+        let n: NodeIndex = rng.sample(distr).into();
+        if n != n1 {
+            break n;
+        }
+    };
+    
+    swap_ori(g, n1, n2);
+    let prev_angles1 = update_grain_angles(g, n1, syms);
+    let prev_angles2 = update_grain_angles(g, n2, syms);
+    let prev_hist = hist.update_with_2grains_new_angles(
+        g, n1, n2, &prev_angles1, &prev_angles2
+    );
+
+    let prev_dnorm = min_ang_norm(&prev_hist, min_ang);
+    let dnorm = min_ang_norm(hist, min_ang);
+    if dnorm < prev_dnorm {
+        Some(dnorm)
+    } else {
+        *hist = prev_hist;
+        swap_ori(g, n1, n2);
+        restore_grain_angles(g, n1, prev_angles1);
+        restore_grain_angles(g, n2, prev_angles2);
+        None
+    }
+}
+
+fn rotate_to_fund_area(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
+    let mut min_ori = Orientation::identity();
+    let mut min_ang = f64::MAX;
+    for s in syms {
+        let q = s * o;
+        let ang = q.angle();
+        if ang < min_ang {
+            min_ang = ang;
+            min_ori = q;
+        }
+    }
+    min_ori
+}
+
+fn fund_area_one_sample_diam(syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
+    let o1 = rotate_to_fund_area(random_orientation(rng), syms);
+    let o2 = rotate_to_fund_area(random_orientation(rng), syms);
+    o1.angle_to(&o2)
+}
+
+fn fund_area_diam(samples_num: usize, syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
+    (0..samples_num).map(|_| fund_area_one_sample_diam(syms, rng))
+                    .reduce(|acc, x| acc.max(x))
+                    .unwrap()
+}
+
+fn fund_sym_angle(
+    o1: Orientation, o2: Orientation, 
+    syms: &Vec<Orientation>
+) -> f64 {
+    let r = o1.rotation_to(&o2);
+    syms.iter()
+        .map(|s| ((s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs(), s.angle()))
+        .max_by(|x, y| x.0.partial_cmp(&y.0).unwrap())
+        .unwrap().1
+}
+
+fn fund_area_one_sample_sym_angle(syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
+    let o1 = rotate_to_fund_area(random_orientation(rng), syms);
+    let o2 = rotate_to_fund_area(random_orientation(rng), syms);
+    fund_sym_angle(o1, o2, syms)
+}
+
+fn fund_area_max_sym_angle(samples_num: usize, syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
+    (0..samples_num).map(|_| fund_area_one_sample_sym_angle(syms, rng))
+                    .max_by(|x, y| x.partial_cmp(y).unwrap())
+                    .unwrap()
+}
+
 fn main() {
+    let mut g = parse_graph("poly-1k.stface");
+    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+
+    let mut rng = Pcg64::seed_from_u64(0);
+    set_random_orientations(&mut g, &mut rng);
+
+    let syms = cube_rotational_symmetry();
+    let mut sorted = syms.iter().map(|x| x.angle()).collect::<Vec<f64>>();
+    sorted.sort_by(|x, y| x.partial_cmp(y).unwrap());
+
+    for basis in sorted {
+        // println!("{:?}", basis);
+        println!("{}", basis.to_degrees());
+    }
+    let num_samples = 100_000;
+    // println!(
+    //     "fund area diam ({} samples): {} degrees", 
+    //     num_samples, 
+    //     fund_area_diam(num_samples, &syms, &mut rng).to_degrees()
+    // );
+    println!(
+        "fund area max sym angle ({} samples): {} degrees", 
+        num_samples, 
+        fund_area_max_sym_angle(num_samples, &syms, &mut rng).to_degrees()
+    );
+    // println!("syms {}", syms.len());
+    // update_angles(&mut g, &syms);
+
+    // let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
+    // let mut hist = Histogram::new(hist_beg, hist_end, 30);
+    // hist.normalize_grain_boundary_area(&mut g);
+    // println!(
+    //     "grains boundary area mul by bar len {}", 
+    //     g.edge_weights().map(|e| e.area).sum::<f64>() * hist.bar_len()
+    // );
+    // let aa = angle_area_vec(&g);
+    // hist.add_from_slice(&aa);
+
+    // let min_ang = 20.0f64.to_radians();
+    
+    // let now = Instant::now();
+    // for i in 0..3_000_000 {
+    //     if let Some(dnorm) = iterate_min_ang(
+    //         &mut g, &mut hist, &syms, &mut rng, min_ang
+    //     ) {
+    //         println!("iter {}, norm {}", i, dnorm);
+    //         let shifted_min_ang = min_ang + hist.bar_len() * 0.5;
+    //         if hist.pairs()
+    //                .take_while(|&(a, _)| a < shifted_min_ang)
+    //                .all(|(_, d)| d <= f64::EPSILON) {
+    //             break
+    //         }
+    //     }
+    // }
+    // println!(
+    //     "swaps alg time: {} s, norm {}", 
+    //     now.elapsed().as_secs_f64(), min_ang_norm(&hist, min_ang)
+    // );
+
+    // let mut file = File::create("hist.txt").unwrap();
+    // for (angle, height) in hist.pairs() {
+    //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), height.to_radians()).unwrap();
+    // }
+
+    // write_orientations(&g, "orientations.out");
+}
+
+fn main2() {
     let mut g = parse_graph("poly-10k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
