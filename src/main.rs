@@ -4,12 +4,11 @@ use rand::prelude::*;
 use rand::distributions::Uniform as RandUniform;
 use rand_pcg::Pcg64;
 use nalgebra as na;
-use na::{Matrix3, Rotation3, UnitQuaternion, Vector3};
+use na::{Matrix3, Quaternion, Rotation3, UnitQuaternion, Vector3};
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
 use statrs::distribution::LogNormal as StatLogNormal;
-use core::num;
-use std::{f64::consts::PI, vec};
+use std::f64::consts::*;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
@@ -440,56 +439,6 @@ fn iterate_rotations(
     }
 }
 
-fn min_ang_norm(hist: &Histogram, min_ang: f64) -> f64 {
-    let shifted_min_ang = min_ang + hist.bar_len() * 0.5;
-    hist.pairs()
-        .take_while(|&(a, _)| a < shifted_min_ang)
-        .map(|(_, d)| d.powi(2))
-        .sum::<f64>().sqrt()
-        // .map(|(a, d)| {
-        //     let fa = f(a);
-        //     ((fa - d) / (1.0 + fa + d)).abs()
-        //     // ((fa - d) / (fa + d)).abs()
-        //     // (fa - d).abs()
-        // })
-        // .max_by(|&x, &y| x.partial_cmp(&y).unwrap())
-        // .unwrap()
-}
-
-fn iterate_min_ang(
-    g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
-    rng: &mut impl Rng, min_ang: f64
-) -> Option<f64> {
-
-    let distr = RandUniform::new(0, g.node_count() as u32);
-    let n1: NodeIndex = rng.sample(distr).into();
-    let n2: NodeIndex = loop {
-        let n: NodeIndex = rng.sample(distr).into();
-        if n != n1 {
-            break n;
-        }
-    };
-    
-    swap_ori(g, n1, n2);
-    let prev_angles1 = update_grain_angles(g, n1, syms);
-    let prev_angles2 = update_grain_angles(g, n2, syms);
-    let prev_hist = hist.update_with_2grains_new_angles(
-        g, n1, n2, &prev_angles1, &prev_angles2
-    );
-
-    let prev_dnorm = min_ang_norm(&prev_hist, min_ang);
-    let dnorm = min_ang_norm(hist, min_ang);
-    if dnorm < prev_dnorm {
-        Some(dnorm)
-    } else {
-        *hist = prev_hist;
-        swap_ori(g, n1, n2);
-        restore_grain_angles(g, n1, prev_angles1);
-        restore_grain_angles(g, n2, prev_angles2);
-        None
-    }
-}
-
 fn rotate_to_fund_area(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
     let mut min_ori = Orientation::identity();
     let mut min_ang = f64::MAX;
@@ -539,7 +488,59 @@ fn fund_area_max_sym_angle(samples_num: usize, syms: &Vec<Orientation>, rng: &mu
                     .unwrap()
 }
 
+#[derive(Debug, Clone, Copy)]
+struct EulerAngles {
+    alpha: f64,
+    cos_beta: f64,
+    gamma: f64,
+}
+
+impl From<Orientation> for EulerAngles {
+    fn from(o: Orientation) -> Self {
+        // x=0 y=0: atan2(y,x)=0 
+        let cos_beta = o.w * o.w - o.i * o.i - o.j * o.j + o.k * o.k;
+        let alpha = (o.w * o.j + o.i * o.k).atan2(o.w * o.i - o.j * o.k);
+        let gamma = (o.i * o.k - o.w * o.j).atan2(o.w * o.i + o.j * o.k);
+        Self{ alpha, cos_beta, gamma }
+    }
+}
+
+impl From<EulerAngles> for Orientation {
+    fn from(angs: EulerAngles) -> Self {
+        let factor_plus_b = (0.5 + 0.5 * angs.cos_beta).sqrt();
+        let factor_minus_b = (0.5 - 0.5 * angs.cos_beta).sqrt();
+        let half_sum_a_g = (angs.alpha + angs.gamma) * 0.5;
+        let half_diff_a_g = (angs.alpha - angs.gamma) * 0.5;
+        let q = Quaternion::new(
+            factor_plus_b * half_sum_a_g.cos(), 
+            factor_minus_b * half_diff_a_g.cos(), 
+            factor_minus_b * half_diff_a_g.sin(), 
+            factor_plus_b * half_sum_a_g.sin(), 
+        );
+        Orientation::new_unchecked(q)
+    }
+}
+
 fn main() {
+    let mut g = parse_graph("poly-1k.stface");
+    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+
+    let mut rng = Pcg64::seed_from_u64(0);
+    set_random_orientations(&mut g, &mut rng);
+
+    let syms = cube_rotational_symmetry();
+    let num_samples = 100_000;
+
+    let angs = EulerAngles{ alpha: FRAC_PI_6 * 2.0, cos_beta: 1.0 - 1e-12, gamma: FRAC_PI_3 };
+    let q = Orientation::from(angs);
+    let back_angs = EulerAngles::from(q);
+    // println!("{}, {}, {}", angs.alpha, angs.cos_beta.acos(), angs.gamma);
+    // println!("{}, {}, {}", back_angs.alpha, back_angs.cos_beta.acos(), back_angs.gamma);
+    dbg!(angs);
+    dbg!(back_angs);
+}
+
+fn main1() {
     let mut g = parse_graph("poly-1k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
@@ -565,46 +566,6 @@ fn main() {
         num_samples, 
         fund_area_max_sym_angle(num_samples, &syms, &mut rng).to_degrees()
     );
-    // println!("syms {}", syms.len());
-    // update_angles(&mut g, &syms);
-
-    // let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
-    // let mut hist = Histogram::new(hist_beg, hist_end, 30);
-    // hist.normalize_grain_boundary_area(&mut g);
-    // println!(
-    //     "grains boundary area mul by bar len {}", 
-    //     g.edge_weights().map(|e| e.area).sum::<f64>() * hist.bar_len()
-    // );
-    // let aa = angle_area_vec(&g);
-    // hist.add_from_slice(&aa);
-
-    // let min_ang = 20.0f64.to_radians();
-    
-    // let now = Instant::now();
-    // for i in 0..3_000_000 {
-    //     if let Some(dnorm) = iterate_min_ang(
-    //         &mut g, &mut hist, &syms, &mut rng, min_ang
-    //     ) {
-    //         println!("iter {}, norm {}", i, dnorm);
-    //         let shifted_min_ang = min_ang + hist.bar_len() * 0.5;
-    //         if hist.pairs()
-    //                .take_while(|&(a, _)| a < shifted_min_ang)
-    //                .all(|(_, d)| d <= f64::EPSILON) {
-    //             break
-    //         }
-    //     }
-    // }
-    // println!(
-    //     "swaps alg time: {} s, norm {}", 
-    //     now.elapsed().as_secs_f64(), min_ang_norm(&hist, min_ang)
-    // );
-
-    // let mut file = File::create("hist.txt").unwrap();
-    // for (angle, height) in hist.pairs() {
-    //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), height.to_radians()).unwrap();
-    // }
-
-    // write_orientations(&g, "orientations.out");
 }
 
 fn main2() {
