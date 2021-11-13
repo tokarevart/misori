@@ -562,17 +562,6 @@ impl From<EulerAngles> for Orientation {
     }
 }
 
-fn fund_domain_one_sample_test(syms: &Vec<Orientation>, rng: &mut impl Rng) -> usize {
-    let o1 = rotate_to_fund_domain(EulerAngles::random(rng).into(), syms);
-    unimplemented!()
-}
-
-fn fund_domain_test(samples_num: usize, syms: &Vec<Orientation>, rng: &mut impl Rng) -> usize {
-    (0..samples_num).map(|_| fund_domain_one_sample_test(syms, rng))
-                    .reduce(|acc, x| acc.max(x))
-                    .unwrap()
-}
-
 fn main1() {
     let mut g = parse_graph("poly-1k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
