@@ -4,13 +4,14 @@ use rand::prelude::*;
 use rand::distributions::Uniform as RandUniform;
 use rand_pcg::Pcg64;
 use nalgebra as na;
-use na::{Matrix3, Quaternion, Rotation3, UnitQuaternion, Vector3};
+use na::{Matrix3, Quaternion, Rotation3, SimdPartialOrd, UnitQuaternion, Vector3};
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
 use statrs::distribution::LogNormal as StatLogNormal;
 use std::f64::consts::*;
 use std::fs::File;
 use std::io::Write;
+use std::panic;
 use std::time::Instant;
 
 type Orientation = UnitQuaternion<f64>;
@@ -56,25 +57,9 @@ fn write_orientations(g: &PolyGraph, path: &str) {
     }
 }
 
-fn random_orientation(rng: &mut impl Rng) -> Orientation {
-    let a = rng.gen_range(0.0..PI*2.0);
-    let y = rng.gen_range(-1.0..1.0);
-    let g = rng.gen_range(0.0..PI*2.0);
-    let (ca, sa) = (a.cos(), a.sin());
-    let (cb, sb) = (y, (1.0f64 - y * y).sqrt());
-    let (cg, sg) = (g.cos(), g.sin());
-
-    let rot = Rotation3::from_matrix_unchecked(Matrix3::new(
-        ca * cg - sa * cb * sg,    -ca * sg - sa * cb * cg,    sa * sb,
-        sa * cg + ca * cb * sg,    -sa * sg + ca * cb * cg,    -ca * sb,
-        sb * sg,                   sb * cg,                    cb
-    ));
-    Orientation::from_rotation_matrix(&rot)
-}
-
 fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
     for w in g.node_weights_mut() {
-        *w = random_orientation(rng);
+        *w = EulerAngles::random(rng).into();
     }
 }
 
@@ -413,7 +398,7 @@ fn iterate_rotations(
     let n: NodeIndex = rng.sample(distr).into();
     
     let prev_ori = g[n];
-    g[n] = random_orientation(rng);
+    g[n] = EulerAngles::random(rng).into();
     let prev_angles = update_grain_angles(g, n, syms);
     let prev_hist = hist.update_with_grain_new_angles(g, n, &prev_angles);
 
@@ -423,7 +408,7 @@ fn iterate_rotations(
         Some(dnorm)
     } else {
         for _ in 0..MAX_ROTS - 1 {
-            g[n] = random_orientation(rng);
+            g[n] = EulerAngles::random(rng).into();
             let prev_angles = update_grain_angles(g, n, syms);
             hist.update_with_grain_new_angles_noret(g, n, &prev_angles);
             let dnorm = diff_norm(hist, |x| f(x));
@@ -439,69 +424,125 @@ fn iterate_rotations(
     }
 }
 
-fn rotate_to_fund_area(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
-    let mut min_ori = Orientation::identity();
-    let mut min_ang = f64::MAX;
+fn rotate_to_fund_domain(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
     for s in syms {
         let q = s * o;
-        let ang = q.angle();
-        if ang < min_ang {
-            min_ang = ang;
-            min_ori = q;
+        let angs = EulerAngles::from(q);
+        if angs.inside_fund_domain() {
+            return q;
         }
     }
-    min_ori
+    panic!("failed to rotate to fundamental domain")
 }
 
-fn fund_area_one_sample_diam(syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
-    let o1 = rotate_to_fund_area(random_orientation(rng), syms);
-    let o2 = rotate_to_fund_area(random_orientation(rng), syms);
-    o1.angle_to(&o2)
-}
-
-fn fund_area_diam(samples_num: usize, syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
-    (0..samples_num).map(|_| fund_area_one_sample_diam(syms, rng))
-                    .reduce(|acc, x| acc.max(x))
-                    .unwrap()
-}
-
-fn fund_sym_angle(
-    o1: Orientation, o2: Orientation, 
-    syms: &Vec<Orientation>
-) -> f64 {
-    let r = o1.rotation_to(&o2);
-    syms.iter()
-        .map(|s| ((s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs(), s.angle()))
-        .max_by(|x, y| x.0.partial_cmp(&y.0).unwrap())
-        .unwrap().1
-}
-
-fn fund_area_one_sample_sym_angle(syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
-    let o1 = rotate_to_fund_area(random_orientation(rng), syms);
-    let o2 = rotate_to_fund_area(random_orientation(rng), syms);
-    fund_sym_angle(o1, o2, syms)
-}
-
-fn fund_area_max_sym_angle(samples_num: usize, syms: &Vec<Orientation>, rng: &mut impl Rng) -> f64 {
-    (0..samples_num).map(|_| fund_area_one_sample_sym_angle(syms, rng))
-                    .max_by(|x, y| x.partial_cmp(y).unwrap())
-                    .unwrap()
+fn rotate_to_fund_domain_debug(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
+    let mut res = None;
+    for s in syms {
+        let q = s * o;
+        let angs = EulerAngles::from(q);
+        if angs.inside_fund_domain() {
+            if res.is_none() {
+                res = Some(q);
+            } else {
+                println!("q{:?}\nr{:?}", angs, EulerAngles::from(res.unwrap()));
+                panic!("multiple orientations in fundamental domain")
+            }
+        }
+    }
+    if let Some(q) = res {
+        q
+    } else {
+        println!("{:?}\n{:?}", o, EulerAngles::from(o));
+        panic!("failed to rotate to fundamental domain")
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct EulerAngles {
-    alpha: f64,
-    cos_beta: f64,
-    gamma: f64,
+    alpha: f64,    // [0;2*Pi)
+    cos_beta: f64, // [0;  Pi)
+    gamma: f64,    // [0;2*Pi)
+}
+
+impl EulerAngles {
+    pub fn random(rng: &mut impl Rng) -> Self {
+        Self {
+            alpha: rng.gen_range(0.0..PI*2.0),
+            cos_beta: rng.gen_range(-1.0..1.0),
+            gamma: rng.gen_range(0.0..PI*2.0),
+        }
+    }
+
+    fn random_fund_gamma(rng: &mut impl Rng) -> f64 {
+        rng.gen_range(0.0..PI*2.0)
+    }
+
+    fn random_fund_alpha(rng: &mut impl Rng) -> f64 {
+        let delta = rng.gen_range(0.0..FRAC_PI_2);
+        let coefs = [
+            1.08683, 0.445806, -1.49288, 1.24993, -0.320195
+        ];
+        let mut alpha = 0.0;
+        let mut x = delta;
+        for c in coefs {
+            alpha += c * x;
+            x *= delta;
+        }
+        alpha
+    }
+
+    fn random_fund_cos_beta(alpha: f64, rng: &mut impl Rng) -> f64 {
+        let low = if alpha < FRAC_PI_4 {
+            let ca = alpha.cos();
+            ca / (1.0 + ca*ca).sqrt()
+        } else {
+            let sa = alpha.sin();
+            sa / (1.0 + sa*sa).sqrt()
+        };
+        rng.gen_range(low..1.0)
+    }
+
+    pub fn random_in_fund_domain(rng: &mut impl Rng) -> Self {
+        let gamma = Self::random_fund_gamma(rng);
+        let alpha = Self::random_fund_alpha(rng);
+        let cos_beta = Self::random_fund_cos_beta(alpha, rng);
+        Self{ alpha, cos_beta, gamma }
+    }
+
+    pub fn inside_fund_domain(&self) -> bool {
+        let (a, cb) = (self.alpha, self.cos_beta);
+        if a < FRAC_PI_4 {
+            let ca = a.cos();
+            cb >= ca / (1.0 + ca*ca).sqrt()
+        } else if a <= FRAC_PI_2 {
+            let sa = a.sin();
+            cb >= sa / (1.0 + sa*sa).sqrt()
+        } else {
+            false
+        }
+    }
 }
 
 impl From<Orientation> for EulerAngles {
     fn from(o: Orientation) -> Self {
-        // x=0 y=0: atan2(y,x)=0 
-        let cos_beta = o.w * o.w - o.i * o.i - o.j * o.j + o.k * o.k;
-        let alpha = (o.w * o.j + o.i * o.k).atan2(o.w * o.i - o.j * o.k);
-        let gamma = (o.i * o.k - o.w * o.j).atan2(o.w * o.i + o.j * o.k);
-        Self{ alpha, cos_beta, gamma }
+        let cos_beta = o.w*o.w - o.i*o.i - o.j*o.j + o.k*o.k;
+        if cos_beta >= 1.0 - f64::EPSILON {
+            let om11 = o.w*o.w + o.i*o.i - o.j*o.j - o.k*o.k;
+            let hom21 = o.i * o.j + o.w * o.k;
+            let g = if hom21 < 0.0 { 2.0 * PI - om11.acos() } else { om11.acos() };
+            let gamma = if g >= 2.0 * PI { g - 2.0 * PI } else { g };
+            Self{ alpha: 0.0, cos_beta, gamma }
+        } else {
+            let mut alpha = (o.w * o.j + o.i * o.k).atan2(o.w * o.i - o.j * o.k);
+            if alpha < 0.0 {
+                alpha += 2.0 * PI;
+            }
+            let mut gamma = (o.i * o.k - o.w * o.j).atan2(o.w * o.i + o.j * o.k);
+            if gamma < 0.0 {
+                gamma += 2.0 * PI;
+            }
+            Self{ alpha, cos_beta, gamma }
+        }
     }
 }
 
@@ -521,23 +562,15 @@ impl From<EulerAngles> for Orientation {
     }
 }
 
-fn main() {
-    let mut g = parse_graph("poly-1k.stface");
-    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+fn fund_domain_one_sample_test(syms: &Vec<Orientation>, rng: &mut impl Rng) -> usize {
+    let o1 = rotate_to_fund_domain(EulerAngles::random(rng).into(), syms);
+    unimplemented!()
+}
 
-    let mut rng = Pcg64::seed_from_u64(0);
-    set_random_orientations(&mut g, &mut rng);
-
-    let syms = cube_rotational_symmetry();
-    let num_samples = 100_000;
-
-    let angs = EulerAngles{ alpha: FRAC_PI_6 * 2.0, cos_beta: 1.0 - 1e-12, gamma: FRAC_PI_3 };
-    let q = Orientation::from(angs);
-    let back_angs = EulerAngles::from(q);
-    // println!("{}, {}, {}", angs.alpha, angs.cos_beta.acos(), angs.gamma);
-    // println!("{}, {}, {}", back_angs.alpha, back_angs.cos_beta.acos(), back_angs.gamma);
-    dbg!(angs);
-    dbg!(back_angs);
+fn fund_domain_test(samples_num: usize, syms: &Vec<Orientation>, rng: &mut impl Rng) -> usize {
+    (0..samples_num).map(|_| fund_domain_one_sample_test(syms, rng))
+                    .reduce(|acc, x| acc.max(x))
+                    .unwrap()
 }
 
 fn main1() {
@@ -548,24 +581,35 @@ fn main1() {
     set_random_orientations(&mut g, &mut rng);
 
     let syms = cube_rotational_symmetry();
-    let mut sorted = syms.iter().map(|x| x.angle()).collect::<Vec<f64>>();
-    sorted.sort_by(|x, y| x.partial_cmp(y).unwrap());
 
-    for basis in sorted {
-        // println!("{:?}", basis);
-        println!("{}", basis.to_degrees());
+    let (alpha, cos_beta, gamma) = (FRAC_PI_2, 1.0 - 1e-16, FRAC_PI_3 * 2.0);
+    let angs = EulerAngles{ alpha, cos_beta, gamma };
+    let q = Orientation::from(angs);
+    let back_angs = EulerAngles::from(q);
+    dbg!(angs);
+    dbg!(back_angs);
+    println!("alpha+gamma: {}", alpha + gamma);
+}
+
+fn main() {
+    let mut g = parse_graph("poly-1k.stface");
+    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+
+    let mut rng = Pcg64::seed_from_u64(0);
+    set_random_orientations(&mut g, &mut rng);
+
+    let syms = cube_rotational_symmetry();
+    for basis in &syms {
+        println!("{:?}", EulerAngles::from(*basis));
     }
-    let num_samples = 100_000;
-    // println!(
-    //     "fund area diam ({} samples): {} degrees", 
-    //     num_samples, 
-    //     fund_area_diam(num_samples, &syms, &mut rng).to_degrees()
-    // );
-    println!(
-        "fund area max sym angle ({} samples): {} degrees", 
-        num_samples, 
-        fund_area_max_sym_angle(num_samples, &syms, &mut rng).to_degrees()
-    );
+    let mut dummy = Orientation::identity();
+    for _ in 0..1_000_000 {
+        dummy *= rotate_to_fund_domain_debug(
+            EulerAngles::random_in_fund_domain(&mut rng).into(), 
+            &syms
+        );
+    }
+    println!("dummy {:?}", dummy);
 }
 
 fn main2() {
