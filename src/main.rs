@@ -526,7 +526,7 @@ impl EulerAngles {
 impl From<Orientation> for EulerAngles {
     fn from(o: Orientation) -> Self {
         let cos_beta = o.w*o.w - o.i*o.i - o.j*o.j + o.k*o.k;
-        if cos_beta >= 1.0 - f64::EPSILON {
+        if cos_beta.abs() >= 1.0 - f64::EPSILON {
             let om11 = o.w*o.w + o.i*o.i - o.j*o.j - o.k*o.k;
             let hom21 = o.i * o.j + o.w * o.k;
             let g = if hom21 < 0.0 { 2.0 * PI - om11.acos() } else { om11.acos() };
