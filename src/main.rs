@@ -514,7 +514,7 @@ impl EulerAngles {
         if a < FRAC_PI_4 {
             let ca = a.cos();
             cb >= ca / (1.0 + ca*ca).sqrt()
-        } else if a <= FRAC_PI_2 {
+        } else if a < FRAC_PI_2 - f64::EPSILON {
             let sa = a.sin();
             cb >= sa / (1.0 + sa*sa).sqrt()
         } else {
@@ -529,16 +529,16 @@ impl From<Orientation> for EulerAngles {
         if cos_beta.abs() >= 1.0 - f64::EPSILON {
             let om11 = o.w*o.w + o.i*o.i - o.j*o.j - o.k*o.k;
             let hom21 = o.i * o.j + o.w * o.k;
-            let g = if hom21 < 0.0 { 2.0 * PI - om11.acos() } else { om11.acos() };
-            let gamma = if g >= 2.0 * PI { g - 2.0 * PI } else { g };
-            Self{ alpha: 0.0, cos_beta, gamma }
+            let a = if hom21 < 0.0 { 2.0 * PI - om11.acos() } else { om11.acos() };
+            let alpha = if a >= 2.0 * PI { a - 2.0 * PI } else { a };
+            Self{ alpha, cos_beta, gamma: 0.0 }
         } else {
             let mut alpha = (o.w * o.j + o.i * o.k).atan2(o.w * o.i - o.j * o.k);
-            if alpha < 0.0 {
+            if alpha <= -f64::EPSILON {
                 alpha += 2.0 * PI;
             }
             let mut gamma = (o.i * o.k - o.w * o.j).atan2(o.w * o.i + o.j * o.k);
-            if gamma < 0.0 {
+            if gamma <= -f64::EPSILON {
                 gamma += 2.0 * PI;
             }
             Self{ alpha, cos_beta, gamma }
@@ -591,6 +591,7 @@ fn main() {
     for basis in &syms {
         println!("{:?}", EulerAngles::from(*basis));
     }
+
     let mut dummy = Orientation::identity();
     for _ in 0..1_000_000 {
         dummy *= rotate_to_fund_domain_debug(
@@ -599,6 +600,13 @@ fn main() {
         );
     }
     println!("dummy {:?}", dummy);
+
+    // let (alpha, cos_beta, gamma) = (0.0, 1.0 - 1e-15, FRAC_PI_2);
+    // let angs = EulerAngles{ alpha, cos_beta, gamma };
+    // let q = Orientation::from(angs);
+    // let bangs = EulerAngles::from(q);
+    // println!("deb {:?}", bangs);
+    // println!("rotated {:?}", EulerAngles::from(rotate_to_fund_domain_debug(angs.into(), &syms)));
 }
 
 fn main2() {
