@@ -334,9 +334,16 @@ fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
     hist.pairs()
         .map(|(a, d)| {
             let fa = f(a);
-            ((fa - d) / (1.0 + fa + d)).powi(2)
+            ((fa - d) / (fa + d)).powi(2)
         })
         .sum::<f64>().sqrt()
+
+        // .map(|(a, d)| {
+        //     let fa = f(a);
+        //     ((fa - d) / (1.0 + fa + d)).powi(2)
+        // })
+        // .sum::<f64>().sqrt()
+
         // .map(|(a, d)| {
         //     let fa = f(a);
         //     ((fa - d) / (1.0 + fa + d)).abs()
@@ -580,7 +587,7 @@ fn main1() {
     println!("alpha+gamma: {}", alpha + gamma);
 }
 
-fn main() {
+fn main2() {
     let mut g = parse_graph("poly-1k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
@@ -609,7 +616,7 @@ fn main() {
     // println!("rotated {:?}", EulerAngles::from(rotate_to_fund_domain_debug(angs.into(), &syms)));
 }
 
-fn main2() {
+fn main() {
     let mut g = parse_graph("poly-10k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
@@ -665,9 +672,13 @@ fn main2() {
             &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
         ) {
             // println!("iter {}, norm {}", i, dnorm);
-            if dnorm < lognorn_stop {
+            if i >= 140_000 {
+                println!("iter {}, norm {}", i, dnorm);
                 break
             }
+            // if dnorm < lognorn_stop {
+            //     break
+            // }
             // if dnorm < 0.79861 { // uniform test
             //     break
             // }
