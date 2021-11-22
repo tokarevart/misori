@@ -495,7 +495,7 @@ impl EulerAngles {
             alpha += c * x;
             x *= delta;
         }
-        alpha
+        alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
     }
 
     fn random_fund_cos_beta(alpha: f64, rng: &mut impl Rng) -> f64 {
@@ -587,7 +587,7 @@ fn main1() {
     println!("alpha+gamma: {}", alpha + gamma);
 }
 
-fn main2() {
+fn main() {
     let mut g = parse_graph("poly-1k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
@@ -616,7 +616,7 @@ fn main2() {
     // println!("rotated {:?}", EulerAngles::from(rotate_to_fund_domain_debug(angs.into(), &syms)));
 }
 
-fn main() {
+fn main3() {
     let mut g = parse_graph("poly-10k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
