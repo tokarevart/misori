@@ -487,9 +487,13 @@ impl EulerAngles {
     fn random_fund_alpha(rng: &mut impl Rng) -> f64 {
         let delta = rng.gen_range(0.0..FRAC_PI_2);
         let coefs = [
-            1.08683, 0.445806, -1.49288, 1.24993, -0.320195
+            1.0616904724669767, 
+            0.5304936828043207, 
+            -1.6125716869506046, 
+            1.3248915389845322, 
+            -0.33738085998446576,
         ];
-        let mut alpha = 0.0;
+        let mut alpha = 0.002259301224771941;
         let mut x = delta;
         for c in coefs {
             alpha += c * x;
