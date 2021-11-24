@@ -573,6 +573,16 @@ impl From<EulerAngles> for Orientation {
     }
 }
 
+fn delta_idx_with_size(delta: f64, size: usize) -> usize {
+    (delta * size as f64 * FRAC_2_PI)
+        .clamp(0.5, size as f64 - 0.5) as usize
+}
+
+fn gamma_idx_with_size(gamma: f64, size: usize) -> usize {
+    (gamma * size as f64 * 0.5 * FRAC_1_PI)
+        .clamp(0.5, size as f64 - 0.5) as usize
+}
+
 fn main1() {
     let mut g = parse_graph("poly-1k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
