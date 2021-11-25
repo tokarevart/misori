@@ -623,10 +623,44 @@ pub mod fund_domain {
     #[derive(Debug, Clone)]
     pub struct FundGrid {
         cells: Vec3<f64>,
+        dims: [usize; 3],
         //...
     }
 
     impl FundGrid {
+        fn delta_idx_with_size(delta: f64, size: usize) -> usize {
+            (delta * size as f64 * FRAC_2_PI)
+                .clamp(0.5, size as f64 - 0.5) as usize
+        }
+
+        fn delta_idx(&self, delta: f64) -> usize {
+            let size = self.dims[0];
+            (delta * size as f64 * FRAC_2_PI)
+                .clamp(0.5, size as f64 - 0.5) as usize
+        }
+    
+        fn lambda_idx_with_size(lambda: f64, size: usize) -> usize {
+            (lambda * size as f64 * 0.3333333333333333)
+                .clamp(0.5, size as f64 - 0.5) as usize
+        }
+
+        fn lambda_idx(&self, lambda: f64) -> usize {
+            let size = self.dims[1];
+            (lambda * size as f64 * 0.3333333333333333)
+                .clamp(0.5, size as f64 - 0.5) as usize
+        }
+        
+        fn gamma_idx_with_size(gamma: f64, size: usize) -> usize {
+            (gamma * size as f64 * 0.5 * FRAC_1_PI)
+                .clamp(0.5, size as f64 - 0.5) as usize
+        }
+
+        fn gamma_idx(&self, gamma: f64) -> usize {
+            let size = self.dims[2];
+            (gamma * size as f64 * 0.5 * FRAC_1_PI)
+                .clamp(0.5, size as f64 - 0.5) as usize
+        }
+        
         //...
     }
 }
