@@ -435,7 +435,7 @@ fn rotate_to_fund_domain(o: Orientation, syms: &Vec<Orientation>) -> Orientation
     for s in syms {
         let q = s * o;
         let angs = EulerAngles::from(q);
-        if angs.inside_fund_domain() {
+        if fund_domain::euler_angles_inside(angs) {
             return q;
         }
     }
@@ -447,7 +447,7 @@ fn rotate_to_fund_domain_debug(o: Orientation, syms: &Vec<Orientation>) -> Orien
     for s in syms {
         let q = s * o;
         let angs = EulerAngles::from(q);
-        if angs.inside_fund_domain() {
+        if fund_domain::euler_angles_inside(angs) {
             if res.is_none() {
                 res = Some(q);
             } else {
@@ -464,28 +464,12 @@ fn rotate_to_fund_domain_debug(o: Orientation, syms: &Vec<Orientation>) -> Orien
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct EulerAngles {
-    alpha: f64,    // [0;2*Pi)
-    cos_beta: f64, // [0;  Pi)
-    gamma: f64,    // [0;2*Pi)
-}
+pub mod fund_domain {
+    use crate::EulerAngles;
+    use rand::prelude::*;
+    use std::f64::consts::*;
 
-impl EulerAngles {
-    pub fn random(rng: &mut impl Rng) -> Self {
-        Self {
-            alpha: rng.gen_range(0.0..PI*2.0),
-            cos_beta: rng.gen_range(-1.0..1.0),
-            gamma: rng.gen_range(0.0..PI*2.0),
-        }
-    }
-
-    fn random_fund_gamma(rng: &mut impl Rng) -> f64 {
-        rng.gen_range(0.0..PI*2.0)
-    }
-
-    fn random_fund_alpha(rng: &mut impl Rng) -> f64 {
-        let delta = rng.gen_range(0.0..FRAC_PI_2);
+    fn delta_to_alpha_rough(delta: f64) -> f64 {
         let coefs = [
             1.0616904724669767, 
             0.5304936828043207, 
@@ -502,26 +486,95 @@ impl EulerAngles {
         alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
     }
 
-    fn random_fund_cos_beta(alpha: f64, rng: &mut impl Rng) -> f64 {
-        let low = if alpha < FRAC_PI_4 {
-            let ca = alpha.cos();
-            ca / (1.0 + ca*ca).sqrt()
+    fn delta_to_alpha(delta: f64) -> f64 {
+        // max abs residual is around 1.54e-7 in both cases
+        let (mut alpha, coefs) = if delta < FRAC_PI_4 {
+            (-1.5412213748824816e-7, [
+                1.138093530676275, 
+                -0.0006002734608298991, 
+                -0.290073973800705, 
+                -0.03556580842760254, 
+                0.27337326904565074,
+                -0.18567348837960618,
+                0.04264441959610007,
+            ])
         } else {
-            let sa = alpha.sin();
-            sa / (1.0 + sa*sa).sqrt()
+            (0.2939488268782047, [
+                0.5896569406998474,
+                -0.3094771848329967,
+                0.9258403328769952,
+                -1.0243587280088193,
+                0.7330805129161097,
+                -0.28322639540399663,
+                0.04264441961596222,
+            ])
         };
+
+        let mut x = delta;
+        for c in coefs {
+            alpha += c * x;
+            x *= delta;
+        }
+        alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
+    }
+
+    fn alpha_to_delta(alpha: f64) -> f64 {
+        3.0 * if alpha < FRAC_PI_4 { 
+            alpha - (alpha.sin() * FRAC_1_SQRT_2).asin()
+        } else { 
+            let (ca, sa) = (alpha.cos(), alpha.sin());
+            -FRAC_PI_3 + alpha + (ca / (1.0 + sa * sa).sqrt()).atan()
+        }
+    }
+
+    fn lower_bnd_fund_cos_beta(alpha: f64) -> f64 {
+        let fa = if alpha < FRAC_PI_4 { alpha.cos() } else { alpha.sin() };
+        fa / (1.0 + fa * fa).sqrt()
+    }
+    
+    fn cos_beta_length(alpha: f64) -> f64 {
+        1.0 - lower_bnd_fund_cos_beta(alpha)
+    }
+
+    fn cos_beta_to_lambda(cos_beta: f64, alpha: f64) -> f64 {
+        0.3333333333333333 * (1.0 - cos_beta) / cos_beta_length(alpha)
+    }
+    
+    fn lambda_to_cos_beta(lambda: f64, alpha: f64) -> f64 {
+        1.0 - 3.0 * cos_beta_length(alpha) * lambda
+    }
+
+    fn random_delta(rng: &mut impl Rng) -> f64 {
+        rng.gen_range(0.0..FRAC_PI_2)
+    }
+
+    fn random_alpha(rng: &mut impl Rng) -> f64 {
+        let delta = rng.gen_range(0.0..FRAC_PI_2);
+        delta_to_alpha(delta)
+    }
+
+    fn random_lambda(rng: &mut impl Rng) -> f64 {
+        rng.gen_range(0.0..0.3333333333333333)
+    }
+
+    fn random_cos_beta(alpha: f64, rng: &mut impl Rng) -> f64 {
+        let low = lower_bnd_fund_cos_beta(alpha);
         rng.gen_range(low..1.0)
     }
 
-    pub fn random_in_fund_domain(rng: &mut impl Rng) -> Self {
-        let gamma = Self::random_fund_gamma(rng);
-        let alpha = Self::random_fund_alpha(rng);
-        let cos_beta = Self::random_fund_cos_beta(alpha, rng);
-        Self{ alpha, cos_beta, gamma }
+    fn random_gamma(rng: &mut impl Rng) -> f64 {
+        rng.gen_range(0.0..PI*2.0)
     }
 
-    pub fn inside_fund_domain(&self) -> bool {
-        let (a, cb) = (self.alpha, self.cos_beta);
+    pub fn random_euler_angles(rng: &mut impl Rng) -> EulerAngles {
+        let gamma = random_gamma(rng);
+        let alpha = random_alpha(rng);
+        let cos_beta = random_cos_beta(alpha, rng);
+        EulerAngles{ alpha, cos_beta, gamma }
+    }
+
+    pub fn euler_angles_inside(angs: EulerAngles) -> bool {
+        let (a, cb) = (angs.alpha, angs.cos_beta);
         if a < FRAC_PI_4 {
             let ca = a.cos();
             cb >= ca / (1.0 + ca*ca).sqrt()
@@ -530,6 +583,67 @@ impl EulerAngles {
             cb >= sa / (1.0 + sa*sa).sqrt()
         } else {
             false
+        }
+    }
+
+    fn delta_idx_with_size(delta: f64, size: usize) -> usize {
+        (delta * size as f64 * FRAC_2_PI)
+            .clamp(0.5, size as f64 - 0.5) as usize
+    }
+
+    fn lambda_idx_with_size(lambda: f64, size: usize) -> usize {
+        (lambda * size as f64 * 0.3333333333333333)
+            .clamp(0.5, size as f64 - 0.5) as usize
+    }
+    
+    fn gamma_idx_with_size(gamma: f64, size: usize) -> usize {
+        (gamma * size as f64 * 0.5 * FRAC_1_PI)
+            .clamp(0.5, size as f64 - 0.5) as usize
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct FundAngles {
+        delta: f64,  // [0;Pi/2)
+        lambda: f64, // [0; 1/3)
+        gamma: f64,  // [0;2*Pi)
+    }
+
+    impl FundAngles {
+        pub fn random(rng: &mut impl Rng) -> Self {
+            Self {
+                delta: random_delta(rng),
+                lambda: random_lambda(rng),
+                gamma: random_gamma(rng),
+            }
+        }
+    }
+
+    type Vec3<T> = Vec<Vec<Vec<T>>>;
+
+    #[derive(Debug, Clone)]
+    pub struct FundGrid {
+        cells: Vec3<f64>,
+        //...
+    }
+
+    impl FundGrid {
+        //...
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EulerAngles {
+    alpha: f64,    // [0;2*Pi)
+    cos_beta: f64, // [0;  Pi)
+    gamma: f64,    // [0;2*Pi)
+}
+
+impl EulerAngles {
+    pub fn random(rng: &mut impl Rng) -> Self {
+        Self {
+            alpha: rng.gen_range(0.0..PI*2.0),
+            cos_beta: rng.gen_range(-1.0..1.0),
+            gamma: rng.gen_range(0.0..PI*2.0),
         }
     }
 }
@@ -573,16 +687,6 @@ impl From<EulerAngles> for Orientation {
     }
 }
 
-fn delta_idx_with_size(delta: f64, size: usize) -> usize {
-    (delta * size as f64 * FRAC_2_PI)
-        .clamp(0.5, size as f64 - 0.5) as usize
-}
-
-fn gamma_idx_with_size(gamma: f64, size: usize) -> usize {
-    (gamma * size as f64 * 0.5 * FRAC_1_PI)
-        .clamp(0.5, size as f64 - 0.5) as usize
-}
-
 fn main1() {
     let mut g = parse_graph("poly-1k.stface");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
@@ -616,7 +720,7 @@ fn main() {
     let mut dummy = Orientation::identity();
     for _ in 0..1_000_000 {
         dummy *= rotate_to_fund_domain_debug(
-            EulerAngles::random_in_fund_domain(&mut rng).into(), 
+            fund_domain::random_euler_angles(&mut rng).into(), 
             &syms
         );
     }
