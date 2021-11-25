@@ -618,6 +618,24 @@ pub mod fund_domain {
         }
     }
 
+    impl From<EulerAngles> for FundAngles {
+        fn from(angs: EulerAngles) -> Self {
+            Self {
+                delta: alpha_to_delta(angs.alpha),
+                lambda: cos_beta_to_lambda(angs.cos_beta, angs.alpha),
+                gamma: angs.gamma,
+            }
+        }
+    }
+
+    impl From<FundAngles> for EulerAngles {
+        fn from(angs: FundAngles) -> Self {
+            let alpha = delta_to_alpha(angs.delta);
+            let cos_beta = lambda_to_cos_beta(angs.lambda, alpha);
+            Self { alpha, cos_beta, gamma: angs.gamma }
+        }
+    }
+
     type Vec3<T> = Vec<Vec<Vec<T>>>;
 
     #[derive(Debug, Clone)]
@@ -660,7 +678,7 @@ pub mod fund_domain {
             (gamma * size as f64 * 0.5 * FRAC_1_PI)
                 .clamp(0.5, size as f64 - 0.5) as usize
         }
-        
+
         //...
     }
 }
