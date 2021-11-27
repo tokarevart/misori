@@ -14,8 +14,58 @@ use std::io::Write;
 use std::panic;
 use std::time::Instant;
 
+use fund_domain::*;
+
 type Orientation = UnitQuaternion<f64>;
-type PolyGraph = UnGraph<Orientation, AngleArea>;
+#[derive(Clone, Copy, Debug)]
+struct GrainOrientation {
+    quat: Orientation, 
+    fund: FundAngles,
+}
+
+impl GrainOrientation {
+    pub fn new(quat: Orientation, fund: FundAngles) -> Self {
+        Self{ quat, fund }
+    }
+
+    pub fn identity() -> Self {
+        Self{ 
+            quat: Orientation::identity(), 
+            fund: FundAngles::identity(), 
+        }
+    }
+
+    pub fn random(rng: &mut impl Rng) -> Self {
+        let fund = FundAngles::random(rng);
+        let quat = fund.into();
+        Self{ quat, fund }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Grain {
+    orientation: GrainOrientation,
+    volume: f64,
+}
+
+impl Grain {
+    pub fn new(orientation: GrainOrientation, volume: f64) -> Self {
+        Self{ orientation, volume }
+    }
+
+    pub fn identity_oriented(volume: f64) -> Self {
+        Self{ 
+            orientation: GrainOrientation::identity(),
+            volume,
+        }
+    }
+
+    pub fn randomly_oriented(volume: f64, rng: &mut impl Rng) -> Self {
+        Self{ orientation: GrainOrientation::random(rng), volume }
+    }
+}
+
+type PolyGraph = UnGraph<Grain, AngleArea>;
 
 #[derive(Clone, Copy, Debug)]
 struct AngleArea {
@@ -23,8 +73,23 @@ struct AngleArea {
     pub area: f64,
 }
 
-fn parse_graph(path: &str) -> PolyGraph {
-    let tuples = std::fs::read_to_string(path).unwrap()
+fn build_graph(bnds: Vec<(f64, u32, u32)>, volumes: Vec<f64>) -> PolyGraph {    
+    let num_nodes = volumes.len();
+    let num_edges = bnds.len();
+    
+    let mut g = PolyGraph::with_capacity(num_nodes, num_edges);
+    for i in 0..num_nodes {
+        g.add_node(Grain::identity_oriented(volumes[i]));
+    }
+    for e in bnds {
+        g.add_edge(e.1.into(), e.2.into(), AngleArea{ angle: f64::NAN, area: e.0 });
+    }
+    
+    g
+}
+
+fn parse_bnds(path: &str) -> Vec<(f64, u32, u32)> {
+    std::fs::read_to_string(path).unwrap()
         .lines()
         .map(|x| x.split_whitespace()
                   .collect::<Vec<_>>())
@@ -34,32 +99,37 @@ fn parse_graph(path: &str) -> PolyGraph {
             x[1].parse::<u32>().unwrap() - 1, 
             x[2].parse::<u32>().unwrap() - 1,
         ))
-        .collect::<Vec<(f64, u32, u32)>>();
-    
-    let num_nodes = tuples.iter().map(|x| x.1.max(x.2) as usize).max().unwrap();
-    let num_edges = tuples.len();
-    
-    let mut g = PolyGraph::with_capacity(num_nodes, num_edges);
-    for _ in 0..num_nodes+1 {
-        g.add_node(Orientation::identity());
-    }
-    for e in tuples {
-        g.add_edge(e.1.into(), e.2.into(), AngleArea{ angle: f64::NAN, area: e.0 });
-    }
-    
-    g
+        .collect()
+}
+
+fn parse_volumes(path: &str) -> Vec<f64> {
+    std::fs::read_to_string(path).unwrap()
+        .lines()
+        .map(|x| x.trim().parse::<f64>().unwrap())
+        .collect()
+}
+
+fn count_volumes_from_bnds(bnds: &[(f64, u32, u32)]) -> usize {
+    bnds.iter().map(|x| x.1.max(x.2) as usize).max().unwrap() + 1
+}
+
+fn parse_graph(bnds_path: &str, volumes_path: &str) -> PolyGraph {
+    let bnds = parse_bnds(bnds_path);
+    let volumes = parse_volumes(volumes_path);
+    build_graph(bnds, volumes)
 }
 
 fn write_orientations(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
-    for q in g.node_weights() {
+    for w in g.node_weights() {
+        let q = &w.orientation.quat;
         writeln!(&mut file, "{} {} {} {}", q.w, q.i, q.j, q.k).unwrap();
     }
 }
 
 fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
     for w in g.node_weights_mut() {
-        *w = EulerAngles::random(rng).into();
+        w.orientation = GrainOrientation::random(rng);
     }
 }
 
@@ -127,7 +197,7 @@ fn update_angle(
     g: &mut PolyGraph, e: EdgeIndex, syms: &Vec<Orientation>
 ) -> f64 {
     let (n1, n2) = g.edge_endpoints(e).unwrap();
-    let (o1, o2) = (g[n1], g[n2]);
+    let (o1, o2) = (g[n1].orientation.quat, g[n2].orientation.quat);
     let prev_angle = g[e].angle;
     g[e].angle = misorientation_angle(o1, o2, syms);
     prev_angle
@@ -355,9 +425,9 @@ fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
 }
 
 fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
-    let gn1 = g[n1];
-    g[n1] = g[n2];
-    g[n2] = gn1;
+    let gn1_ori = g[n1].orientation;
+    g[n1].orientation = g[n2].orientation;
+    g[n2].orientation = gn1_ori;
 }
 
 fn iterate_swaps(
@@ -404,8 +474,8 @@ fn iterate_rotations(
     let distr = RandUniform::new(0, g.node_count() as u32);
     let n: NodeIndex = rng.sample(distr).into();
     
-    let prev_ori = g[n];
-    g[n] = EulerAngles::random(rng).into();
+    let prev_ori = g[n].orientation;
+    g[n].orientation = GrainOrientation::random(rng);
     let prev_angles = update_grain_angles(g, n, syms);
     let prev_hist = hist.update_with_grain_new_angles(g, n, &prev_angles);
 
@@ -415,7 +485,7 @@ fn iterate_rotations(
         Some(dnorm)
     } else {
         for _ in 0..MAX_ROTS - 1 {
-            g[n] = EulerAngles::random(rng).into();
+            g[n].orientation = GrainOrientation::random(rng);
             let prev_angles = update_grain_angles(g, n, syms);
             hist.update_with_grain_new_angles_noret(g, n, &prev_angles);
             let dnorm = diff_norm(hist, |x| f(x));
@@ -425,7 +495,7 @@ fn iterate_rotations(
         }
 
         *hist = prev_hist;
-        g[n] = prev_ori;
+        g[n].orientation = prev_ori;
         restore_grain_angles(g, n, prev_angles);
         None
     }
@@ -465,9 +535,12 @@ fn rotate_to_fund_domain_debug(o: Orientation, syms: &Vec<Orientation>) -> Orien
 }
 
 pub mod fund_domain {
-    use crate::EulerAngles;
+    use crate::{EulerAngles, Orientation, PolyGraph};
     use rand::prelude::*;
     use std::f64::consts::*;
+
+    const ACOS_2_3: f64 = 0.8410686705679303;
+    const INV_ACOS_2_3: f64 = 1.1889635590929235;
 
     fn delta_to_alpha_rough(delta: f64) -> f64 {
         let coefs = [
@@ -537,11 +610,11 @@ pub mod fund_domain {
     }
 
     fn cos_beta_to_lambda(cos_beta: f64, alpha: f64) -> f64 {
-        0.3333333333333333 * (1.0 - cos_beta) / cos_beta_length(alpha)
+        ACOS_2_3 * (1.0 - cos_beta) / cos_beta_length(alpha)
     }
     
     fn lambda_to_cos_beta(lambda: f64, alpha: f64) -> f64 {
-        1.0 - 3.0 * cos_beta_length(alpha) * lambda
+        1.0 - INV_ACOS_2_3 * cos_beta_length(alpha) * lambda
     }
 
     fn random_delta(rng: &mut impl Rng) -> f64 {
@@ -554,7 +627,7 @@ pub mod fund_domain {
     }
 
     fn random_lambda(rng: &mut impl Rng) -> f64 {
-        rng.gen_range(0.0..0.3333333333333333)
+        rng.gen_range(0.0..ACOS_2_3)
     }
 
     fn random_cos_beta(alpha: f64, rng: &mut impl Rng) -> f64 {
@@ -592,7 +665,7 @@ pub mod fund_domain {
     }
 
     fn lambda_idx_with_size(lambda: f64, size: usize) -> usize {
-        (lambda * size as f64 * 0.3333333333333333)
+        (lambda * size as f64 * ACOS_2_3)
             .clamp(0.5, size as f64 - 0.5) as usize
     }
     
@@ -604,11 +677,19 @@ pub mod fund_domain {
     #[derive(Debug, Clone, Copy)]
     pub struct FundAngles {
         delta: f64,  // [0;Pi/2)
-        lambda: f64, // [0; 1/3)
+        lambda: f64, // [0;acos(2/3))
         gamma: f64,  // [0;2*Pi)
     }
 
     impl FundAngles {
+        pub fn identity() -> Self {
+            Self {
+                delta: 0.0,
+                lambda: 0.0,
+                gamma: 0.0,
+            }
+        }
+
         pub fn random(rng: &mut impl Rng) -> Self {
             Self {
                 delta: random_delta(rng),
@@ -636,12 +717,26 @@ pub mod fund_domain {
         }
     }
 
+    impl From<Orientation> for FundAngles {
+        fn from(o: Orientation) -> Self {
+            EulerAngles::from(o).into()
+        }
+    }
+
+    impl From<FundAngles> for Orientation {
+        fn from(angs: FundAngles) -> Self {
+            EulerAngles::from(angs).into()
+        }
+    }
+
     type Vec3<T> = Vec<Vec<Vec<T>>>;
 
     #[derive(Debug, Clone)]
     pub struct FundGrid {
         cells: Vec3<f64>,
         dims: [usize; 3],
+        dvol: f64,
+        polygraph: PolyGraph,
         //...
     }
 
@@ -658,13 +753,13 @@ pub mod fund_domain {
         }
     
         fn lambda_idx_with_size(lambda: f64, size: usize) -> usize {
-            (lambda * size as f64 * 0.3333333333333333)
+            (lambda * size as f64 * ACOS_2_3)
                 .clamp(0.5, size as f64 - 0.5) as usize
         }
 
         fn lambda_idx(&self, lambda: f64) -> usize {
             let size = self.dims[1];
-            (lambda * size as f64 * 0.3333333333333333)
+            (lambda * size as f64 * ACOS_2_3)
                 .clamp(0.5, size as f64 - 0.5) as usize
         }
         
@@ -740,7 +835,9 @@ impl From<EulerAngles> for Orientation {
 }
 
 fn main1() {
-    let mut g = parse_graph("poly-1k.stface");
+    let bnds = parse_bnds("poly-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
     let mut rng = Pcg64::seed_from_u64(0);
@@ -757,8 +854,10 @@ fn main1() {
     println!("alpha+gamma: {}", alpha + gamma);
 }
 
-fn main() {
-    let mut g = parse_graph("poly-1k.stface");
+fn main2() {
+    let bnds = parse_bnds("poly-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
     let mut rng = Pcg64::seed_from_u64(0);
@@ -786,8 +885,10 @@ fn main() {
     // println!("rotated {:?}", EulerAngles::from(rotate_to_fund_domain_debug(angs.into(), &syms)));
 }
 
-fn main3() {
-    let mut g = parse_graph("poly-10k.stface");
+fn main() {
+    let bnds = parse_bnds("poly-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
 
     let mut rng = Pcg64::seed_from_u64(0);
@@ -826,9 +927,13 @@ fn main3() {
     //         &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
     //     ) {
     //         // println!("iter {}, norm {}", i, dnorm);
-    //         if dnorm < lognorn_stop {
+    //         if i >= 1_000_000 {
+    //             println!("iter {}, norm {}", i, dnorm);
     //             break
     //         }
+    //         // if dnorm < lognorn_stop {
+    //         //     break
+    //         // }
     //     }
     // }
     // println!(
