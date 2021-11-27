@@ -835,10 +835,11 @@ impl From<EulerAngles> for Orientation {
 }
 
 fn main1() {
-    let bnds = parse_bnds("poly-10k.stface");
-    let num_vols = count_volumes_from_bnds(&bnds);
-    let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    // let bnds = parse_bnds("bnds-10k.stface");
+    // let num_vols = count_volumes_from_bnds(&bnds);
+    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
 
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
@@ -855,10 +856,11 @@ fn main1() {
 }
 
 fn main2() {
-    let bnds = parse_bnds("poly-10k.stface");
-    let num_vols = count_volumes_from_bnds(&bnds);
-    let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    // let bnds = parse_bnds("bnds-10k.stface");
+    // let num_vols = count_volumes_from_bnds(&bnds);
+    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
 
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
@@ -886,10 +888,11 @@ fn main2() {
 }
 
 fn main() {
-    let bnds = parse_bnds("poly-10k.stface");
-    let num_vols = count_volumes_from_bnds(&bnds);
-    let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    // let bnds = parse_bnds("bnds-10k.stface");
+    // let num_vols = count_volumes_from_bnds(&bnds);
+    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
 
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
