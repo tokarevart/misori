@@ -4,7 +4,7 @@ use rand::prelude::*;
 use rand::distributions::Uniform as RandUniform;
 use rand_pcg::Pcg64;
 use nalgebra as na;
-use na::{Matrix3, Quaternion, Rotation3, SimdPartialOrd, UnitQuaternion, Vector3};
+use na::{Quaternion, UnitQuaternion, Vector3};
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
 use statrs::distribution::LogNormal as StatLogNormal;
@@ -14,36 +14,34 @@ use std::io::Write;
 use std::panic;
 use std::time::Instant;
 
-use fund_domain::*;
-
 type Orientation = UnitQuaternion<f64>;
 #[derive(Clone, Copy, Debug)]
-struct GrainOrientation {
+pub struct GrainOrientation {
     quat: Orientation, 
-    fund: FundAngles,
+    fund: fnd::FundAngles,
 }
 
 impl GrainOrientation {
-    pub fn new(quat: Orientation, fund: FundAngles) -> Self {
+    pub fn new(quat: Orientation, fund: fnd::FundAngles) -> Self {
         Self{ quat, fund }
     }
 
     pub fn identity() -> Self {
         Self{ 
             quat: Orientation::identity(), 
-            fund: FundAngles::identity(), 
+            fund: fnd::FundAngles::identity(), 
         }
     }
 
     pub fn random(rng: &mut impl Rng) -> Self {
-        let fund = FundAngles::random(rng);
+        let fund = fnd::FundAngles::random(rng);
         let quat = fund.into();
         Self{ quat, fund }
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Grain {
+pub struct Grain {
     orientation: GrainOrientation,
     volume: f64,
 }
@@ -68,7 +66,7 @@ impl Grain {
 type PolyGraph = UnGraph<Grain, AngleArea>;
 
 #[derive(Clone, Copy, Debug)]
-struct AngleArea {
+pub struct AngleArea {
     pub angle: f64,
     pub area: f64,
 }
@@ -163,100 +161,12 @@ fn cube_rotational_symmetry() -> Vec<Orientation> {
         .collect()
 }
 
-fn misorientation_angle(
-    o1: Orientation, o2: Orientation, 
-    syms: &Vec<Orientation>
-) -> f64 {
-    let r = o1.rotation_to(&o2);
-    syms.iter()
-        .map(|s| (s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs())
-        .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
-        .acos() * 2.0
-
-    //  simplified Ostapovich version
-    // let r = o1.rotation_to(&o2);
-    // syms.iter()
-    //     .map(|s| (s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs().acos())
-    //     .min_by(|x, y| x.partial_cmp(y).unwrap())
-    //     .unwrap() * 2.0
-
-    //  most simple and inefficient
-    // syms.iter()
-    //     .map(|s| o1.angle_to(&(s * o2)))
-    //     .min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
-
-    //  using nalgebra funcs
-    // let inv_r = o1.rotation_to(&o2).inverse();
-    // syms.iter()
-    //     .map(|s| inv_r.angle_to(s))
-    //     .min_by(|x, y| x.partial_cmp(y).unwrap())
-    //     .unwrap()
-}
-
-fn update_angle(
-    g: &mut PolyGraph, e: EdgeIndex, syms: &Vec<Orientation>
-) -> f64 {
-    let (n1, n2) = g.edge_endpoints(e).unwrap();
-    let (o1, o2) = (g[n1].orientation.quat, g[n2].orientation.quat);
-    let prev_angle = g[e].angle;
-    g[e].angle = misorientation_angle(o1, o2, syms);
-    prev_angle
-}
-
-fn update_grain_angles(
-    g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
-) -> Vec<f64> {
-    let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
-    let mut prev_angles = Vec::with_capacity(edges.len());
-    for e in edges {
-        prev_angles.push(update_angle(g, e, syms));
-    }
-    prev_angles
-}
-
-fn update_grain_angles_noret(
-    g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
-) {
-    let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
-    for e in edges {
-        update_angle(g, e, syms);
-    }
-}
-
-fn restore_grain_angles(g: &mut PolyGraph, n: NodeIndex, prev_angles: Vec<f64>) {
-    let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
-    for (&e, a) in edges.iter().zip(prev_angles) {
-        g[e].angle = a;
-    }
-}
-
-fn update_angles(g: &mut PolyGraph, syms: &Vec<Orientation>) {
-    for e in g.edge_indices() {
-        update_angle(g, e, syms);
-    }
-}
-
-fn angle_area_vec(g: &PolyGraph) -> Vec<AngleArea> {
-    g.edge_weights().map(|&e| e).collect()
-}
-
-fn max_gap(sorted_pairs: &Vec<AngleArea>) -> f64 {
-    let mut max_gap = 0.0;
-    let mut prev_angle = sorted_pairs.first().unwrap().angle;
-    for &AngleArea{ angle, .. } in sorted_pairs.iter().skip(1) {
-        let gap = angle - prev_angle;
-        max_gap = gap.max(max_gap);
-        prev_angle = angle;
-    }
-
-    max_gap
-}
-
 #[derive(Clone, Debug)]
-struct Histogram {
+pub struct Histogram {
     pub beg: f64,
     pub end: f64,
     pub heights: Vec<f64>,
+    pub bar_len: f64,
     find_bar_coef: f64,
 }
 
@@ -265,12 +175,13 @@ impl Histogram {
         let hs = vec![0.0; bars];
         Histogram { 
             beg, end, heights: hs, 
+            bar_len: (end - beg) / bars as f64,
             find_bar_coef: bars as f64 / (end - beg),
         }
     }
 
     pub fn add(&mut self, aa: AngleArea) {
-        let idx = self.bar_idx(aa.angle);
+        let idx = self.idx(aa.angle);
         self.heights[idx] += aa.area;
     }
 
@@ -284,19 +195,15 @@ impl Histogram {
         self.heights.len()
     }
 
-    pub fn bar_len(&self) -> f64 {
-        (self.end - self.beg) / self.bars() as f64
-    }
-
     pub fn total_height(&self) -> f64 {
         self.heights.iter().sum()
     }
 
     pub fn area(&self) -> f64 {
-        self.total_height() * self.bar_len()
+        self.total_height() * self.bar_len
     }
 
-    pub fn bar_idx(&self, angle: f64) -> usize {
+    pub fn idx(&self, angle: f64) -> usize {
         let i = ((angle - self.beg) * self.find_bar_coef) as usize;
         i.min(self.bars() - 1)
     }
@@ -330,15 +237,15 @@ impl Histogram {
     }
 
     pub fn normalize_grain_boundary_area(&self, g: &mut PolyGraph) {
-        let inv_area = 1.0 / (g.edge_weights().map(|x| x.area).sum::<f64>() * self.bar_len());
+        let inv_area = 1.0 / (g.edge_weights().map(|x| x.area).sum::<f64>() * self.bar_len);
         for AngleArea{ area, .. } in g.edge_weights_mut() {
             *area *= inv_area;
         }
     }
 
     fn update_with_edge_new_angle(&mut self, new_aa: AngleArea, prev_angle: f64) {
-        let hpos = self.bar_idx(new_aa.angle);
-        let prev_hpos = self.bar_idx(prev_angle);
+        let hpos = self.idx(new_aa.angle);
+        let prev_hpos = self.idx(prev_angle);
         if hpos != prev_hpos {
             self.heights[prev_hpos] -= new_aa.area;
             self.heights[hpos] += new_aa.area;
@@ -392,7 +299,7 @@ impl Histogram {
     }
 
     pub fn pairs(&self) -> impl Iterator<Item=(f64, f64)> {
-        let d = self.bar_len();
+        let d = self.bar_len;
         let first = self.beg + d * 0.5;
         self.heights.clone().into_iter()
             .enumerate()
@@ -400,186 +307,52 @@ impl Histogram {
     }
 }
 
-fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
-    hist.pairs()
-        .map(|(a, d)| {
-            let fa = f(a);
-            ((fa - d) / (fa + d)).powi(2)
-        })
-        .sum::<f64>().sqrt()
-
-        // .map(|(a, d)| {
-        //     let fa = f(a);
-        //     ((fa - d) / (1.0 + fa + d)).powi(2)
-        // })
-        // .sum::<f64>().sqrt()
-
-        // .map(|(a, d)| {
-        //     let fa = f(a);
-        //     ((fa - d) / (1.0 + fa + d)).abs()
-        //     // ((fa - d) / (fa + d)).abs()
-        //     // (fa - d).abs()
-        // })
-        // .max_by(|&x, &y| x.partial_cmp(&y).unwrap())
-        // .unwrap()
-}
-
-fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
-    let gn1_ori = g[n1].orientation;
-    g[n1].orientation = g[n2].orientation;
-    g[n2].orientation = gn1_ori;
-}
-
-fn iterate_swaps(
-    g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
-    rng: &mut impl Rng, f: impl Fn(f64) -> f64
-) -> Option<f64> {
-
-    let distr = RandUniform::new(0, g.node_count() as u32);
-    let n1: NodeIndex = rng.sample(distr).into();
-    let n2: NodeIndex = loop {
-        let n: NodeIndex = rng.sample(distr).into();
-        if n != n1 {
-            break n;
-        }
-    };
-    
-    swap_ori(g, n1, n2);
-    let prev_angles1 = update_grain_angles(g, n1, syms);
-    let prev_angles2 = update_grain_angles(g, n2, syms);
-    let prev_hist = hist.update_with_2grains_new_angles(
-        g, n1, n2, &prev_angles1, &prev_angles2
-    );
-
-    let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
-    let dnorm = diff_norm(hist, f);
-    if dnorm < prev_dnorm {
-        Some(dnorm)
-    } else {
-        *hist = prev_hist;
-        swap_ori(g, n1, n2);
-        restore_grain_angles(g, n1, prev_angles1);
-        restore_grain_angles(g, n2, prev_angles2);
-        None
-    }
-}
-
-fn iterate_rotations(
-    g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
-    rng: &mut impl Rng, f: impl Fn(f64) -> f64
-) -> Option<f64> {
-
-    const MAX_ROTS: usize = 4;
-
-    let distr = RandUniform::new(0, g.node_count() as u32);
-    let n: NodeIndex = rng.sample(distr).into();
-    
-    let prev_ori = g[n].orientation;
-    g[n].orientation = GrainOrientation::random(rng);
-    let prev_angles = update_grain_angles(g, n, syms);
-    let prev_hist = hist.update_with_grain_new_angles(g, n, &prev_angles);
-
-    let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
-    let dnorm = diff_norm(hist, |x| f(x));
-    if dnorm < prev_dnorm {
-        Some(dnorm)
-    } else {
-        for _ in 0..MAX_ROTS - 1 {
-            g[n].orientation = GrainOrientation::random(rng);
-            let prev_angles = update_grain_angles(g, n, syms);
-            hist.update_with_grain_new_angles_noret(g, n, &prev_angles);
-            let dnorm = diff_norm(hist, |x| f(x));
-            if dnorm < prev_dnorm {
-                return Some(dnorm);
-            }
-        }
-
-        *hist = prev_hist;
-        g[n].orientation = prev_ori;
-        restore_grain_angles(g, n, prev_angles);
-        None
-    }
-}
-
-fn rotate_to_fund_domain(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
-    for s in syms {
-        let q = s * o;
-        let angs = EulerAngles::from(q);
-        if fund_domain::euler_angles_inside(angs) {
-            return q;
-        }
-    }
-    panic!("failed to rotate to fundamental domain")
-}
-
-fn rotate_to_fund_domain_debug(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
-    let mut res = None;
-    for s in syms {
-        let q = s * o;
-        let angs = EulerAngles::from(q);
-        if fund_domain::euler_angles_inside(angs) {
-            if res.is_none() {
-                res = Some(q);
-            } else {
-                println!("q{:?}\nr{:?}", angs, EulerAngles::from(res.unwrap()));
-                panic!("multiple orientations in fundamental domain")
-            }
-        }
-    }
-    if let Some(q) = res {
-        q
-    } else {
-        println!("{:?}\n{:?}", o, EulerAngles::from(o));
-        panic!("failed to rotate to fundamental domain")
-    }
-}
-
-pub mod fund_domain {
-    use crate::{EulerAngles, Orientation, PolyGraph};
+pub mod fnd {
+    use crate::{Grain, EulerAngles, Orientation, PolyGraph};
     use rand::prelude::*;
     use std::f64::consts::*;
 
-    const ACOS_2_3: f64 = 0.8410686705679303;
-    const INV_ACOS_2_3: f64 = 1.1889635590929235;
+    const TWOPI: f64 = 6.283185307179586;
+    const INV_TWOPI: f64 = 1.0 / TWOPI;
 
-    fn delta_to_alpha_rough(delta: f64) -> f64 {
-        let coefs = [
-            1.0616904724669767, 
-            0.5304936828043207, 
-            -1.6125716869506046, 
-            1.3248915389845322, 
-            -0.33738085998446576,
-        ];
-        let mut alpha = 0.002259301224771941;
-        let mut x = delta;
-        for c in coefs {
-            alpha += c * x;
-            x *= delta;
-        }
-        alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
-    }
+    // fn delta_to_alpha_rough(delta: f64) -> f64 {
+    //     let coefs = [
+    //         1.0616904724669767, 
+    //         0.5304936828043207, 
+    //         -1.6125716869506046, 
+    //         1.3248915389845322, 
+    //         -0.33738085998446576,
+    //     ];
+    //     let mut alpha = 0.002259301224771941;
+    //     let mut x = delta;
+    //     for c in coefs {
+    //         alpha += c * x;
+    //         x *= delta;
+    //     }
+    //     alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
+    // }
 
     fn delta_to_alpha(delta: f64) -> f64 {
-        // max abs residual is around 1.54e-7 in both cases
-        let (mut alpha, coefs) = if delta < FRAC_PI_4 {
-            (-1.5412213748824816e-7, [
-                1.138093530676275, 
-                -0.0006002734608298991, 
-                -0.290073973800705, 
-                -0.03556580842760254, 
-                0.27337326904565074,
-                -0.18567348837960618,
-                0.04264441959610007,
+        // max abs residual is around 1.54e-7 in case 100 approx points
+        let (mut alpha, coefs) = if delta < 0.5 {
+            (-1.5412213799217173e-7, [
+                1.7877131375353352,
+                -0.0014811153979554467,
+                -1.1242642361745494,
+                -0.21652706694161616,
+                2.6143000507326315,
+                -2.7891325822727,
+                1.0062394665068222,
             ])
         } else {
-            (0.2939488268782047, [
-                0.5896569406998474,
-                -0.3094771848329967,
-                0.9258403328769952,
-                -1.0243587280088193,
-                0.7330805129161097,
-                -0.28322639540399663,
-                0.04264441961596222,
+            (0.29394882696857055, [
+                0.9262309556426349,
+                -0.7636043427447508,
+                3.5883576821444523,
+                -6.236365775641571,
+                7.0105333499686635,
+                -4.254543681618522,
+                1.0062394661975618,
             ])
         };
 
@@ -610,24 +383,24 @@ pub mod fund_domain {
     }
 
     fn cos_beta_to_lambda(cos_beta: f64, alpha: f64) -> f64 {
-        ACOS_2_3 * (1.0 - cos_beta) / cos_beta_length(alpha)
+        (1.0 - cos_beta) / cos_beta_length(alpha)
     }
     
     fn lambda_to_cos_beta(lambda: f64, alpha: f64) -> f64 {
-        1.0 - INV_ACOS_2_3 * cos_beta_length(alpha) * lambda
+        1.0 - cos_beta_length(alpha) * lambda
     }
 
-    fn random_delta(rng: &mut impl Rng) -> f64 {
-        rng.gen_range(0.0..FRAC_PI_2)
+    fn gamma_to_omega(gamma: f64) -> f64 {
+        gamma * INV_TWOPI
+    }
+
+    fn omega_to_gamma(omega: f64) -> f64 {
+        omega * TWOPI
     }
 
     fn random_alpha(rng: &mut impl Rng) -> f64 {
         let delta = rng.gen_range(0.0..FRAC_PI_2);
         delta_to_alpha(delta)
-    }
-
-    fn random_lambda(rng: &mut impl Rng) -> f64 {
-        rng.gen_range(0.0..ACOS_2_3)
     }
 
     fn random_cos_beta(alpha: f64, rng: &mut impl Rng) -> f64 {
@@ -659,26 +432,11 @@ pub mod fund_domain {
         }
     }
 
-    fn delta_idx_with_size(delta: f64, size: usize) -> usize {
-        (delta * size as f64 * FRAC_2_PI)
-            .clamp(0.5, size as f64 - 0.5) as usize
-    }
-
-    fn lambda_idx_with_size(lambda: f64, size: usize) -> usize {
-        (lambda * size as f64 * ACOS_2_3)
-            .clamp(0.5, size as f64 - 0.5) as usize
-    }
-    
-    fn gamma_idx_with_size(gamma: f64, size: usize) -> usize {
-        (gamma * size as f64 * 0.5 * FRAC_1_PI)
-            .clamp(0.5, size as f64 - 0.5) as usize
-    }
-
     #[derive(Debug, Clone, Copy)]
     pub struct FundAngles {
-        delta: f64,  // [0;Pi/2)
-        lambda: f64, // [0;acos(2/3))
-        gamma: f64,  // [0;2*Pi)
+        delta: f64,  // [0;1)
+        lambda: f64, // [0;1)
+        omega: f64,  // [0;1)
     }
 
     impl FundAngles {
@@ -686,16 +444,20 @@ pub mod fund_domain {
             Self {
                 delta: 0.0,
                 lambda: 0.0,
-                gamma: 0.0,
+                omega: 0.0,
             }
         }
 
         pub fn random(rng: &mut impl Rng) -> Self {
             Self {
-                delta: random_delta(rng),
-                lambda: random_lambda(rng),
-                gamma: random_gamma(rng),
+                delta: Self::random_angle(rng),
+                lambda: Self::random_angle(rng),
+                omega: Self::random_angle(rng),
             }
+        }
+
+        pub fn random_angle(rng: &mut impl Rng) -> f64 {
+            rng.gen_range(0.0..1.0)
         }
     }
 
@@ -704,7 +466,7 @@ pub mod fund_domain {
             Self {
                 delta: alpha_to_delta(angs.alpha),
                 lambda: cos_beta_to_lambda(angs.cos_beta, angs.alpha),
-                gamma: angs.gamma,
+                omega: angs.gamma,
             }
         }
     }
@@ -713,7 +475,8 @@ pub mod fund_domain {
         fn from(angs: FundAngles) -> Self {
             let alpha = delta_to_alpha(angs.delta);
             let cos_beta = lambda_to_cos_beta(angs.lambda, alpha);
-            Self { alpha, cos_beta, gamma: angs.gamma }
+            let gamma = omega_to_gamma(angs.omega);
+            Self { alpha, cos_beta, gamma }
         }
     }
 
@@ -729,49 +492,68 @@ pub mod fund_domain {
         }
     }
 
-    type Vec3<T> = Vec<Vec<Vec<T>>>;
+    pub type Vec3<T> = Vec<Vec<Vec<T>>>;
+    pub type CellIdxs = (usize, usize, usize); 
 
     #[derive(Debug, Clone)]
     pub struct FundGrid {
-        cells: Vec3<f64>,
-        dims: [usize; 3],
-        dvol: f64,
-        polygraph: PolyGraph,
+        pub cells: Vec3<f64>,
+        pub segms: usize,
+        pub dvol: f64,
         //...
     }
 
     impl FundGrid {
-        fn delta_idx_with_size(delta: f64, size: usize) -> usize {
-            (delta * size as f64 * FRAC_2_PI)
-                .clamp(0.5, size as f64 - 0.5) as usize
+        pub fn new(each_angle_segms: usize) -> Self {
+            let segms = each_angle_segms;
+            let cells = vec![vec![vec![0.0; segms]; segms]; segms];
+            let dvol = 1.0 / segms.pow(3) as f64;
+            Self{ cells, segms, dvol }
         }
 
-        fn delta_idx(&self, delta: f64) -> usize {
-            let size = self.dims[0];
-            (delta * size as f64 * FRAC_2_PI)
-                .clamp(0.5, size as f64 - 0.5) as usize
+        pub fn add(&mut self, g: &Grain) {
+            let (d, l, o) = self.idxs(g.orientation.fund);
+            self.cells[d][l][o] += g.volume;
         }
     
-        fn lambda_idx_with_size(lambda: f64, size: usize) -> usize {
-            (lambda * size as f64 * ACOS_2_3)
-                .clamp(0.5, size as f64 - 0.5) as usize
+        pub fn add_from_iter<'a>(&mut self, g_iter: impl Iterator<Item=&'a Grain>) {
+            for g in g_iter {
+                self.add(g);
+            }
         }
 
-        fn lambda_idx(&self, lambda: f64) -> usize {
-            let size = self.dims[1];
-            (lambda * size as f64 * ACOS_2_3)
-                .clamp(0.5, size as f64 - 0.5) as usize
-        }
-        
-        fn gamma_idx_with_size(gamma: f64, size: usize) -> usize {
-            (gamma * size as f64 * 0.5 * FRAC_1_PI)
-                .clamp(0.5, size as f64 - 0.5) as usize
+        pub fn clear(&mut self) {
+            for cell in self.cells.iter_mut().flatten().flatten() {
+                *cell = 0.0;
+            }
         }
 
-        fn gamma_idx(&self, gamma: f64) -> usize {
-            let size = self.dims[2];
-            (gamma * size as f64 * 0.5 * FRAC_1_PI)
-                .clamp(0.5, size as f64 - 0.5) as usize
+        pub fn idx(&self, angle: f64) -> usize {
+            (angle * self.segms as f64)
+                .clamp(0.5, self.segms as f64 - 0.5) as usize
+        }
+
+        pub fn idxs(&self, angles: FundAngles) -> CellIdxs {
+            (
+                self.idx(angles.delta), 
+                self.idx(angles.lambda), 
+                self.idx(angles.omega)
+            )
+        }
+
+        pub fn at(&self, idxs: CellIdxs) -> f64 {
+            self.cells[idxs.0][idxs.1][idxs.2]
+        }
+
+        pub fn at_mut(&mut self, idxs: (usize, usize, usize)) -> &mut f64 {
+            &mut self.cells[idxs.0][idxs.1][idxs.2]
+        }
+
+        pub fn normalize_grain_volumes(&self, g: &mut PolyGraph) {
+            let inv_vol = 1.0 / (g.node_weights().map(|x| x.volume).sum::<f64>() * self.dvol);
+            for Grain{ volume, .. } in g.node_weights_mut() {
+                *volume *= inv_vol;
+            }
         }
 
         //...
@@ -834,6 +616,305 @@ impl From<EulerAngles> for Orientation {
     }
 }
 
+mod mis_opt {
+    use crate::*;
+
+    fn misorientation_angle(
+        o1: Orientation, o2: Orientation, 
+        syms: &Vec<Orientation>
+    ) -> f64 {
+        let r = o1.rotation_to(&o2);
+        syms.iter()
+            .map(|s| (s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs())
+            .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
+            .acos() * 2.0
+    
+        //  simplified Ostapovich version
+        // let r = o1.rotation_to(&o2);
+        // syms.iter()
+        //     .map(|s| (s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs().acos())
+        //     .min_by(|x, y| x.partial_cmp(y).unwrap())
+        //     .unwrap() * 2.0
+    
+        //  most simple and inefficient
+        // syms.iter()
+        //     .map(|s| o1.angle_to(&(s * o2)))
+        //     .min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
+    
+        //  using nalgebra funcs
+        // let inv_r = o1.rotation_to(&o2).inverse();
+        // syms.iter()
+        //     .map(|s| inv_r.angle_to(s))
+        //     .min_by(|x, y| x.partial_cmp(y).unwrap())
+        //     .unwrap()
+    }
+    
+    fn update_angle(
+        g: &mut PolyGraph, e: EdgeIndex, syms: &Vec<Orientation>
+    ) -> f64 {
+        let (n1, n2) = g.edge_endpoints(e).unwrap();
+        let (o1, o2) = (g[n1].orientation.quat, g[n2].orientation.quat);
+        let prev_angle = g[e].angle;
+        g[e].angle = misorientation_angle(o1, o2, syms);
+        prev_angle
+    }
+    
+    fn update_grain_angles(
+        g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
+    ) -> Vec<f64> {
+        let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
+        let mut prev_angles = Vec::with_capacity(edges.len());
+        for e in edges {
+            prev_angles.push(update_angle(g, e, syms));
+        }
+        prev_angles
+    }
+    
+    fn update_grain_angles_noret(
+        g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
+    ) {
+        let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
+        for e in edges {
+            update_angle(g, e, syms);
+        }
+    }
+    
+    fn restore_grain_angles(g: &mut PolyGraph, n: NodeIndex, prev_angles: Vec<f64>) {
+        let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
+        for (&e, a) in edges.iter().zip(prev_angles) {
+            g[e].angle = a;
+        }
+    }
+    
+    pub fn update_angles(g: &mut PolyGraph, syms: &Vec<Orientation>) {
+        for e in g.edge_indices() {
+            update_angle(g, e, syms);
+        }
+    }
+    
+    pub fn angle_area_vec(g: &PolyGraph) -> Vec<AngleArea> {
+        g.edge_weights().map(|&e| e).collect()
+    }
+    
+    pub fn max_gap(sorted_pairs: &Vec<AngleArea>) -> f64 {
+        let mut max_gap = 0.0;
+        let mut prev_angle = sorted_pairs.first().unwrap().angle;
+        for &AngleArea{ angle, .. } in sorted_pairs.iter().skip(1) {
+            let gap = angle - prev_angle;
+            max_gap = gap.max(max_gap);
+            prev_angle = angle;
+        }
+    
+        max_gap
+    }
+
+    pub fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
+        hist.pairs()
+            .map(|(a, d)| {
+                let fa = f(a);
+                ((fa - d) / (fa + d)).powi(2)
+            })
+            .sum::<f64>().sqrt()
+    
+            // .map(|(a, d)| {
+            //     let fa = f(a);
+            //     ((fa - d) / (1.0 + fa + d)).powi(2)
+            // })
+            // .sum::<f64>().sqrt()
+    
+            // .map(|(a, d)| {
+            //     let fa = f(a);
+            //     ((fa - d) / (1.0 + fa + d)).abs()
+            //     // ((fa - d) / (fa + d)).abs()
+            //     // (fa - d).abs()
+            // })
+            // .max_by(|&x, &y| x.partial_cmp(&y).unwrap())
+            // .unwrap()
+    }
+    
+    pub fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
+        let gn1_ori = g[n1].orientation;
+        g[n1].orientation = g[n2].orientation;
+        g[n2].orientation = gn1_ori;
+    }
+    
+    pub fn iterate_swaps(
+        g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
+        rng: &mut impl Rng, f: impl Fn(f64) -> f64
+    ) -> Option<f64> {
+    
+        let distr = RandUniform::new(0, g.node_count() as u32);
+        let n1: NodeIndex = rng.sample(distr).into();
+        let n2: NodeIndex = loop {
+            let n: NodeIndex = rng.sample(distr).into();
+            if n != n1 {
+                break n;
+            }
+        };
+        
+        swap_ori(g, n1, n2);
+        let prev_angles1 = update_grain_angles(g, n1, syms);
+        let prev_angles2 = update_grain_angles(g, n2, syms);
+        let prev_hist = hist.update_with_2grains_new_angles(
+            g, n1, n2, &prev_angles1, &prev_angles2
+        );
+    
+        let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
+        let dnorm = diff_norm(hist, f);
+        if dnorm < prev_dnorm {
+            Some(dnorm)
+        } else {
+            *hist = prev_hist;
+            swap_ori(g, n1, n2);
+            restore_grain_angles(g, n1, prev_angles1);
+            restore_grain_angles(g, n2, prev_angles2);
+            None
+        }
+    }
+    
+    pub fn iterate_rotations(
+        g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
+        rng: &mut impl Rng, f: impl Fn(f64) -> f64
+    ) -> Option<f64> {
+    
+        const MAX_ROTS: usize = 4;
+    
+        let distr = RandUniform::new(0, g.node_count() as u32);
+        let n: NodeIndex = rng.sample(distr).into();
+        
+        let prev_ori = g[n].orientation;
+        g[n].orientation = GrainOrientation::random(rng);
+        let prev_angles = update_grain_angles(g, n, syms);
+        let prev_hist = hist.update_with_grain_new_angles(g, n, &prev_angles);
+    
+        let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
+        let dnorm = diff_norm(hist, |x| f(x));
+        if dnorm < prev_dnorm {
+            Some(dnorm)
+        } else {
+            for _ in 0..MAX_ROTS - 1 {
+                g[n].orientation = GrainOrientation::random(rng);
+                let prev_angles = update_grain_angles(g, n, syms);
+                hist.update_with_grain_new_angles_noret(g, n, &prev_angles);
+                let dnorm = diff_norm(hist, |x| f(x));
+                if dnorm < prev_dnorm {
+                    return Some(dnorm);
+                }
+            }
+    
+            *hist = prev_hist;
+            g[n].orientation = prev_ori;
+            restore_grain_angles(g, n, prev_angles);
+            None
+        }
+    }
+}
+
+mod ori_opt {
+    use crate::*;
+
+    pub fn texture_sum(grid: &mut fnd::FundGrid) -> f64 {
+        grid.cells.iter().flatten().flatten()
+            .map(|&x| x * x)
+            .sum::<f64>()
+    }
+
+    pub fn texture_index(grid: &mut fnd::FundGrid) -> f64 {
+        texture_sum(grid) * grid.dvol
+    }
+
+    // returns previus and current orientation cell idxs 
+    fn rotate_randomly(
+        g: &mut PolyGraph, grid: &mut fnd::FundGrid, 
+        n: NodeIndex, texture_sum: &mut f64, rng: &mut impl Rng
+    ) -> ((fnd::CellIdxs, f64), (fnd::CellIdxs, f64)) {
+        let vol = g[n].volume;
+
+        let (prev_idxs, prev_f1) = {
+            let idxs = grid.idxs(g[n].orientation.fund);
+            let prev_f = grid.at(idxs);
+            *grid.at_mut(idxs) -= vol;
+            // *texture_sum += -2.0 * prev_f * vol + vol * vol;
+            // *texture_sum -= prev_f * prev_f;
+            // *grid.at_mut(idxs) -= vol;
+            // let cur_f = prev_f - vol;
+            // *texture_sum += cur_f * cur_f;
+            (idxs, prev_f)
+        };
+        let (cur_idxs, prev_f2) = {
+            g[n].orientation = GrainOrientation::random(rng);
+            let idxs = grid.idxs(g[n].orientation.fund);
+            let prev_f = grid.at(idxs);
+            *grid.at_mut(idxs) += vol;
+            // *texture_sum += 2.0 * prev_f * vol + vol * vol;
+            // *texture_sum -= prev_f * prev_f;
+            // *grid.at_mut(idxs) += vol;
+            // let cur_f = prev_f + vol;
+            // *texture_sum += cur_f * cur_f;
+            (idxs, prev_f)
+        };
+        *texture_sum += 2.0 * (vol * (prev_f2 - prev_f1) + vol * vol);
+        ((prev_idxs, prev_f1), (cur_idxs, prev_f2))
+    }
+    
+    pub fn iterate_rotations_cubic_isotropic(
+        g: &mut PolyGraph, grid: &mut fnd::FundGrid, 
+        texture_sum: &mut f64, rng: &mut impl Rng,
+    ) -> Option<f64> {
+
+        let distr = RandUniform::new(0, g.node_count() as u32);
+        let n: NodeIndex = rng.sample(distr).into();
+        
+        let prev_ori = g[n].orientation;
+        let prev_texsum = *texture_sum;
+        let (prev, cur) = rotate_randomly(g, grid, n, texture_sum, rng);
+        *texture_sum = ori_opt::texture_sum(grid);
+        if *texture_sum < prev_texsum {
+            Some(*texture_sum * grid.dvol)
+        } else {
+            g[n].orientation = prev_ori;
+            *grid.at_mut(prev.0) = prev.1;
+            *grid.at_mut(cur.0) = cur.1;
+            *texture_sum = prev_texsum;
+            // *texture_sum = ori_opt::texture_sum(grid);
+            None
+        }
+    }
+}
+
+fn rotate_to_fund_domain(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
+    for s in syms {
+        let q = s * o;
+        let angs = EulerAngles::from(q);
+        if fnd::euler_angles_inside(angs) {
+            return q;
+        }
+    }
+    panic!("failed to rotate to fundamental domain")
+}
+
+fn rotate_to_fund_domain_debug(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
+    let mut res = None;
+    for s in syms {
+        let q = s * o;
+        let angs = EulerAngles::from(q);
+        if fnd::euler_angles_inside(angs) {
+            if res.is_none() {
+                res = Some(q);
+            } else {
+                println!("q{:?}\nr{:?}", angs, EulerAngles::from(res.unwrap()));
+                panic!("multiple orientations in fundamental domain")
+            }
+        }
+    }
+    if let Some(q) = res {
+        q
+    } else {
+        println!("{:?}\n{:?}", o, EulerAngles::from(o));
+        panic!("failed to rotate to fundamental domain")
+    }
+}
+
 fn main1() {
     // let bnds = parse_bnds("bnds-10k.stface");
     // let num_vols = count_volumes_from_bnds(&bnds);
@@ -873,7 +954,7 @@ fn main2() {
     let mut dummy = Orientation::identity();
     for _ in 0..1_000_000 {
         dummy *= rotate_to_fund_domain_debug(
-            fund_domain::random_euler_angles(&mut rng).into(), 
+            fnd::random_euler_angles(&mut rng).into(), 
             &syms
         );
     }
@@ -887,7 +968,7 @@ fn main2() {
     // println!("rotated {:?}", EulerAngles::from(rotate_to_fund_domain_debug(angs.into(), &syms)));
 }
 
-fn main() {
+fn main3() {
     // let bnds = parse_bnds("bnds-10k.stface");
     // let num_vols = count_volumes_from_bnds(&bnds);
     // let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -902,16 +983,16 @@ fn main() {
         println!("{:?}", basis);
     }
     println!("syms {}", syms.len());
-    update_angles(&mut g, &syms);
+    mis_opt::update_angles(&mut g, &syms);
 
     let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
     let mut hist = Histogram::new(hist_beg, hist_end, 30);
     hist.normalize_grain_boundary_area(&mut g);
     println!(
         "grains boundary area mul by bar len {}", 
-        g.edge_weights().map(|e| e.area).sum::<f64>() * hist.bar_len()
+        g.edge_weights().map(|e| e.area).sum::<f64>() * hist.bar_len
     );
-    let aa = angle_area_vec(&g);
+    let aa = mis_opt::angle_area_vec(&g);
     hist.add_from_slice(&aa);
     // let mut file = File::create("hist.txt").unwrap();
     // for (angle, height) in hist.pairs() {
@@ -946,7 +1027,7 @@ fn main() {
 
     let now = Instant::now();
     for i in 0..3_000_000 {
-        if let Some(dnorm) = iterate_rotations(
+        if let Some(dnorm) = mis_opt::iterate_rotations(
             &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
         ) {
             // println!("iter {}, norm {}", i, dnorm);
@@ -964,7 +1045,7 @@ fn main() {
     }
     println!(
         "rotations alg time: {}, norm {}", 
-        now.elapsed().as_secs_f64(), diff_norm(&mut hist, |x| lognorm.pdf(x))
+        now.elapsed().as_secs_f64(), mis_opt::diff_norm(&mut hist, |x| lognorm.pdf(x))
     );
 
     let mut file = File::create("hist.txt").unwrap();
@@ -974,6 +1055,58 @@ fn main() {
     // for angle in (0..30).map(|i| (i as f64 + 0.5) * (hist_end - hist_beg) / 30.0) {
     //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), lognorm.pdf(angle).to_radians()).unwrap();
     // }
+
+    write_orientations(&g, "orientations.out");
+}
+
+fn main() {
+    let bnds = parse_bnds("bnds-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    // let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    let mut rng = Pcg64::seed_from_u64(0);
+    set_random_orientations(&mut g, &mut rng);
+
+    let segms = 5;
+    let mut grid = fnd::FundGrid::new(segms);
+    grid.normalize_grain_volumes(&mut g);
+    grid.add_from_iter(g.node_weights());
+
+    let minmax = (
+        *grid.cells.iter().flatten().flatten().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap(), 
+        *grid.cells.iter().flatten().flatten().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
+    );
+
+    println!("vol: {}", g.node_weights().map(|x| x.volume).sum::<f64>() * grid.dvol);
+    println!("dvol: {}", grid.dvol);
+    println!("min max f: {:?}", minmax);
+    
+    let now = Instant::now();
+    let mut texture_sum = ori_opt::texture_sum(&mut grid);
+    println!("starting texture index: {}", texture_sum * grid.dvol);
+    for i in 0..10_000 {
+        // if i % segms.pow(3) == 0 {
+        // if i % 2 == 0 {
+            // grid.clear();
+            // grid.add_from_iter(g.node_weights());
+        // }
+        if let Some(texidx) = ori_opt::iterate_rotations_cubic_isotropic(
+            &mut g, &mut grid, &mut texture_sum, &mut rng
+        ) {
+            // println!("iter {}, texture index {}", i, texidx);
+        }
+    }
+    println!(
+        "rotations alg time: {}, texture index {}", 
+        now.elapsed().as_secs_f64(), texture_sum * grid.dvol
+    );
+
+    let minmax = (
+        *grid.cells.iter().flatten().flatten().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap(), 
+        *grid.cells.iter().flatten().flatten().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
+    );
+    println!("min max f: {:?}", minmax);
 
     write_orientations(&g, "orientations.out");
 }
