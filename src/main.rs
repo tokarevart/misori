@@ -853,7 +853,7 @@ mod ori_opt {
             // *texture_sum += cur_f * cur_f;
             (idxs, prev_f)
         };
-        *texture_sum += 2.0 * vol * (prev_f2 - prev_f1 + vol);
+        *texture_sum += 2.0 * vol * ((prev_f2 - prev_f1) + vol);
         ((prev_idxs, prev_f1), (cur_idxs, prev_f2))
     }
     
@@ -1086,8 +1086,8 @@ fn main() {
     let mut texture_sum = ori_opt::texture_sum(&mut grid);
     println!("starting texture index: {}", texture_sum * grid.dvol);
     for i in 0..10000 {
-        grid.clear();
-        grid.add_from_iter(g.node_weights());
+        // grid.clear();
+        // grid.add_from_iter(g.node_weights());
         
         if let Some(texidx) = ori_opt::iterate_rotations_cubic_isotropic(
             &mut g, &mut grid, &mut texture_sum, &mut rng
