@@ -853,7 +853,7 @@ mod ori_opt {
             // *texture_sum += cur_f * cur_f;
             (idxs, prev_f)
         };
-        *texture_sum += 2.0 * (vol * (prev_f2 - prev_f1) + vol * vol);
+        *texture_sum += 2.0 * vol * (prev_f2 - prev_f1 + vol);
         ((prev_idxs, prev_f1), (cur_idxs, prev_f2))
     }
     
@@ -868,8 +868,8 @@ mod ori_opt {
         let prev_ori = g[n].orientation;
         let prev_texsum = *texture_sum;
         let (prev, cur) = rotate_randomly(g, grid, n, texture_sum, rng);
-        *texture_sum = ori_opt::texture_sum(grid);
-        if *texture_sum < prev_texsum {
+        // *texture_sum = ori_opt::texture_sum(grid);
+        if *texture_sum < prev_texsum && *texture_sum * grid.dvol >= 1.0 {
             Some(*texture_sum * grid.dvol)
         } else {
             g[n].orientation = prev_ori;
@@ -1085,22 +1085,29 @@ fn main() {
     let now = Instant::now();
     let mut texture_sum = ori_opt::texture_sum(&mut grid);
     println!("starting texture index: {}", texture_sum * grid.dvol);
-    for i in 0..10_000 {
-        // if i % segms.pow(3) == 0 {
-        // if i % 2 == 0 {
-            // grid.clear();
-            // grid.add_from_iter(g.node_weights());
-        // }
+    for i in 0..10000 {
+        grid.clear();
+        grid.add_from_iter(g.node_weights());
+        
         if let Some(texidx) = ori_opt::iterate_rotations_cubic_isotropic(
             &mut g, &mut grid, &mut texture_sum, &mut rng
         ) {
             // println!("iter {}, texture index {}", i, texidx);
+            // break;
+            // if i % segms.pow(3) == 0 {
+            // if i % 2 == 0 {
+                // grid.clear();
+                // grid.add_from_iter(g.node_weights());
+            // }
         }
     }
     println!(
         "rotations alg time: {}, texture index {}", 
         now.elapsed().as_secs_f64(), texture_sum * grid.dvol
     );
+    grid.clear();
+    grid.add_from_iter(g.node_weights());
+    println!("recalc texture index {}", ori_opt::texture_index(&mut grid));
 
     let minmax = (
         *grid.cells.iter().flatten().flatten().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap(), 
