@@ -4,7 +4,7 @@ use rand::prelude::*;
 use rand::distributions::Uniform as RandUniform;
 use rand_pcg::Pcg64;
 use nalgebra as na;
-use na::{Quaternion, UnitQuaternion, Vector3};
+use na::{ComplexField, Quaternion, UnitQuaternion, Vector3};
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
 use statrs::distribution::LogNormal as StatLogNormal;
@@ -13,6 +13,8 @@ use std::fs::File;
 use std::io::Write;
 use std::panic;
 use std::time::Instant;
+
+use crate::mis_opt::diff_norm;
 
 type Orientation = UnitQuaternion<f64>;
 #[derive(Clone, Copy, Debug)]
@@ -512,8 +514,8 @@ pub mod fnd {
         }
 
         pub fn add(&mut self, g: &Grain) {
-            let (d, l, o) = self.idxs(g.orientation.fund);
-            self.cells[d][l][o] += g.volume;
+            let idxs = self.idxs(g.orientation.fund);
+            *self.at_mut(idxs) += g.volume;
         }
     
         pub fn add_from_iter<'a>(&mut self, g_iter: impl Iterator<Item=&'a Grain>) {
@@ -816,14 +818,14 @@ mod ori_opt {
     pub fn texture_sum(grid: &mut fnd::FundGrid) -> f64 {
         grid.cells.iter().flatten().flatten()
             .map(|&x| x * x)
-            .sum::<f64>()
+            .sum()
     }
 
     pub fn texture_index(grid: &mut fnd::FundGrid) -> f64 {
         texture_sum(grid) * grid.dvol
     }
 
-    // returns previus and current orientation cell idxs 
+    // returns previus and current orientation cell idxs and cell heights
     fn rotate_randomly(
         g: &mut PolyGraph, grid: &mut fnd::FundGrid, 
         n: NodeIndex, texture_sum: &mut f64, rng: &mut impl Rng
@@ -834,23 +836,17 @@ mod ori_opt {
             let idxs = grid.idxs(g[n].orientation.fund);
             let prev_f = grid.at(idxs);
             *grid.at_mut(idxs) -= vol;
-            // *texture_sum += -2.0 * prev_f * vol + vol * vol;
-            // *texture_sum -= prev_f * prev_f;
-            // *grid.at_mut(idxs) -= vol;
-            // let cur_f = prev_f - vol;
-            // *texture_sum += cur_f * cur_f;
             (idxs, prev_f)
         };
         let (cur_idxs, prev_f2) = {
             g[n].orientation = GrainOrientation::random(rng);
-            let idxs = grid.idxs(g[n].orientation.fund);
+            let mut idxs = grid.idxs(g[n].orientation.fund);
+            while idxs == prev_idxs {
+                g[n].orientation = GrainOrientation::random(rng);
+                idxs = grid.idxs(g[n].orientation.fund);
+            }
             let prev_f = grid.at(idxs);
             *grid.at_mut(idxs) += vol;
-            // *texture_sum += 2.0 * prev_f * vol + vol * vol;
-            // *texture_sum -= prev_f * prev_f;
-            // *grid.at_mut(idxs) += vol;
-            // let cur_f = prev_f + vol;
-            // *texture_sum += cur_f * cur_f;
             (idxs, prev_f)
         };
         *texture_sum += 2.0 * vol * ((prev_f2 - prev_f1) + vol);
@@ -868,15 +864,15 @@ mod ori_opt {
         let prev_ori = g[n].orientation;
         let prev_texsum = *texture_sum;
         let (prev, cur) = rotate_randomly(g, grid, n, texture_sum, rng);
-        // *texture_sum = ori_opt::texture_sum(grid);
-        if *texture_sum < prev_texsum && *texture_sum * grid.dvol >= 1.0 {
+        if *texture_sum < prev_texsum {
             Some(*texture_sum * grid.dvol)
         } else {
             g[n].orientation = prev_ori;
-            *grid.at_mut(prev.0) = prev.1;
+            // restoration order matters in case 
+            // the new orientation is in the same cell as the previous one
             *grid.at_mut(cur.0) = cur.1;
+            *grid.at_mut(prev.0) = prev.1;
             *texture_sum = prev_texsum;
-            // *texture_sum = ori_opt::texture_sum(grid);
             None
         }
     }
@@ -1059,12 +1055,20 @@ fn main3() {
     write_orientations(&g, "orientations.out");
 }
 
+fn grids_diff_norm(g1: &fnd::FundGrid, g2: &fnd::FundGrid) -> f64 {
+    g1.cells.iter().flatten().flatten()
+        .zip(g2.cells.iter().flatten().flatten())
+        .map(|(x, y)| (x - y))
+        .sum()
+        // .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
+}
+
 fn main() {
-    let bnds = parse_bnds("bnds-10k.stface");
-    let num_vols = count_volumes_from_bnds(&bnds);
-    let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
-    // let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    // let bnds = parse_bnds("bnds-10k.stface");
+    // let num_vols = count_volumes_from_bnds(&bnds);
+    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
 
@@ -1073,47 +1077,30 @@ fn main() {
     grid.normalize_grain_volumes(&mut g);
     grid.add_from_iter(g.node_weights());
 
-    let minmax = (
-        *grid.cells.iter().flatten().flatten().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap(), 
-        *grid.cells.iter().flatten().flatten().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
+    let minmax = |g: &fnd::FundGrid| (
+        *g.cells.iter().flatten().flatten().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap(), 
+        *g.cells.iter().flatten().flatten().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
     );
 
-    println!("vol: {}", g.node_weights().map(|x| x.volume).sum::<f64>() * grid.dvol);
     println!("dvol: {}", grid.dvol);
-    println!("min max f: {:?}", minmax);
+    println!("min max f: {:?}", minmax(&grid));
     
     let now = Instant::now();
     let mut texture_sum = ori_opt::texture_sum(&mut grid);
     println!("starting texture index: {}", texture_sum * grid.dvol);
-    for i in 0..10000 {
-        // grid.clear();
-        // grid.add_from_iter(g.node_weights());
-        
+    for i in 0..1_000_000 {
         if let Some(texidx) = ori_opt::iterate_rotations_cubic_isotropic(
             &mut g, &mut grid, &mut texture_sum, &mut rng
         ) {
             // println!("iter {}, texture index {}", i, texidx);
-            // break;
-            // if i % segms.pow(3) == 0 {
-            // if i % 2 == 0 {
-                // grid.clear();
-                // grid.add_from_iter(g.node_weights());
-            // }
         }
     }
     println!(
-        "rotations alg time: {}, texture index {}", 
+        "rotations alg time: {} s, texture index {}", 
         now.elapsed().as_secs_f64(), texture_sum * grid.dvol
     );
-    grid.clear();
-    grid.add_from_iter(g.node_weights());
-    println!("recalc texture index {}", ori_opt::texture_index(&mut grid));
 
-    let minmax = (
-        *grid.cells.iter().flatten().flatten().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap(), 
-        *grid.cells.iter().flatten().flatten().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
-    );
-    println!("min max f: {:?}", minmax);
+    println!("min max f: {:?}", minmax(&grid));
 
     write_orientations(&g, "orientations.out");
 }
