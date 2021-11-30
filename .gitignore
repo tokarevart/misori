@@ -6,3 +6,5 @@ Cargo.lock
 *.txt
 *.out
 *.m
+*.svg
+*.png

@@ -134,7 +134,7 @@ fn write_orientations_euler(g: &PolyGraph, path: &str) {
         //     let angs = EulerAngles::from(s * q);
         //     writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
         // }
-        let angs = EulerAngles::from(q);
+        let angs = EulerAngles::from(w.orientation.fund);
         if !fnd::euler_angles_inside(angs) {
             println!("da fock: {:?}", angs);
         }
@@ -145,7 +145,7 @@ fn write_orientations_euler(g: &PolyGraph, path: &str) {
 fn write_random_orientations_euler(num_oris: usize, path: &str, rng: &mut impl Rng) {
     let mut file = File::create(path).unwrap();
     for angs in (0..num_oris).map(|_| EulerAngles::random(rng)) {
-        writeln!(&mut file, "{} {} {}", angs.gamma, angs.cos_beta.acos(), angs.alpha).unwrap();
+        writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
     }
 }
 
@@ -347,18 +347,18 @@ pub mod fnd {
     //         1.3248915389845322, 
     //         -0.33738085998446576,
     //     ];
-    //     let mut alpha = 0.002259301224771941;
+    //     let mut gamma = 0.002259301224771941;
     //     let mut x = delta;
     //     for c in coefs {
-    //         alpha += c * x;
+    //         gamma += c * x;
     //         x *= delta;
     //     }
-    //     alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
+    //     gamma.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
     // }
 
-    fn delta_to_alpha(delta: f64) -> f64 {
+    fn delta_to_gamma(delta: f64) -> f64 {
         // max abs residual is around 1.54e-7 in case 100 approx points
-        let (mut alpha, coefs) = if delta < 0.5 {
+        let (mut gamma, coefs) = if delta < 0.5 {
             (-1.5412213799217173e-7, [
                 1.7877131375353352,
                 -0.0014811153979554467,
@@ -382,75 +382,76 @@ pub mod fnd {
 
         let mut x = delta;
         for c in coefs {
-            alpha += c * x;
+            gamma += c * x;
             x *= delta;
         }
-        alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
+        gamma.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
     }
 
-    fn alpha_to_delta(alpha: f64) -> f64 {
-        3.0 * if alpha < FRAC_PI_4 { 
-            alpha - (alpha.sin() * FRAC_1_SQRT_2).asin()
+    fn gamma_to_delta(gamma: f64) -> f64 {
+        3.0 * if gamma < FRAC_PI_4 { 
+            gamma - (gamma.sin() * FRAC_1_SQRT_2).asin()
         } else { 
-            let (ca, sa) = (alpha.cos(), alpha.sin());
-            -FRAC_PI_3 + alpha + (ca / (1.0 + sa * sa).sqrt()).atan()
+            let (ca, sa) = (gamma.cos(), gamma.sin());
+            -FRAC_PI_3 + gamma + (ca / (1.0 + sa * sa).sqrt()).atan()
         }
     }
 
-    fn lower_bnd_fund_cos_beta(alpha: f64) -> f64 {
-        let fa = if alpha < FRAC_PI_4 { alpha.cos() } else { alpha.sin() };
+    fn lower_bnd_fund_cos_beta(gamma: f64) -> f64 {
+        let fa = if gamma < FRAC_PI_4 { gamma.cos() } else { gamma.sin() };
         fa / (1.0 + fa * fa).sqrt()
     }
     
-    fn cos_beta_length(alpha: f64) -> f64 {
-        1.0 - lower_bnd_fund_cos_beta(alpha)
+    fn cos_beta_length(gamma: f64) -> f64 {
+        1.0 - lower_bnd_fund_cos_beta(gamma)
     }
 
-    fn cos_beta_to_lambda(cos_beta: f64, alpha: f64) -> f64 {
-        (1.0 - cos_beta) / cos_beta_length(alpha)
+    fn cos_beta_to_lambda(cos_beta: f64, gamma: f64) -> f64 {
+        (1.0 - cos_beta) / cos_beta_length(gamma)
     }
     
-    fn lambda_to_cos_beta(lambda: f64, alpha: f64) -> f64 {
-        1.0 - cos_beta_length(alpha) * lambda
+    fn lambda_to_cos_beta(lambda: f64, gamma: f64) -> f64 {
+        1.0 - cos_beta_length(gamma) * lambda
     }
 
-    fn gamma_to_omega(gamma: f64) -> f64 {
-        gamma * INV_TWOPI
+    fn alpha_to_omega(alpha: f64) -> f64 {
+        alpha * INV_TWOPI
     }
 
-    fn omega_to_gamma(omega: f64) -> f64 {
+    fn omega_to_alpha(omega: f64) -> f64 {
         omega * TWOPI
     }
 
     fn random_alpha(rng: &mut impl Rng) -> f64 {
-        let delta = rng.gen_range(0.0..FRAC_PI_2);
-        delta_to_alpha(delta)
+        rng.gen_range(0.0..PI*2.0)
+        
     }
 
-    fn random_cos_beta(alpha: f64, rng: &mut impl Rng) -> f64 {
-        let low = lower_bnd_fund_cos_beta(alpha);
+    fn random_cos_beta(gamma: f64, rng: &mut impl Rng) -> f64 {
+        let low = lower_bnd_fund_cos_beta(gamma);
         rng.gen_range(low..1.0)
     }
 
     fn random_gamma(rng: &mut impl Rng) -> f64 {
-        rng.gen_range(0.0..PI*2.0)
+        let delta = rng.gen_range(0.0..FRAC_PI_2);
+        delta_to_gamma(delta)
     }
 
     pub fn random_euler_angles(rng: &mut impl Rng) -> EulerAngles {
-        let gamma = random_gamma(rng);
         let alpha = random_alpha(rng);
-        let cos_beta = random_cos_beta(alpha, rng);
+        let gamma = random_gamma(rng);
+        let cos_beta = random_cos_beta(gamma, rng);
         EulerAngles{ alpha, cos_beta, gamma }
     }
 
     pub fn euler_angles_inside(angs: EulerAngles) -> bool {
-        let (a, cb) = (angs.alpha, angs.cos_beta);
-        if a < FRAC_PI_4 {
-            let ca = a.cos();
-            cb >= ca / (1.0 + ca*ca).sqrt()
-        } else if a < FRAC_PI_2 - f64::EPSILON {
-            let sa = a.sin();
-            cb >= sa / (1.0 + sa*sa).sqrt()
+        let (g, cb) = (angs.gamma, angs.cos_beta);
+        if g < FRAC_PI_4 {
+            let cg = g.cos();
+            cb >= cg / (1.0 + cg * cg).sqrt()
+        } else if g < FRAC_PI_2 - f64::EPSILON {
+            let sg = g.sin();
+            cb >= sg / (1.0 + sg * sg).sqrt()
         } else {
             false
         }
@@ -488,18 +489,18 @@ pub mod fnd {
     impl From<EulerAngles> for FundAngles {
         fn from(angs: EulerAngles) -> Self {
             Self {
-                delta: alpha_to_delta(angs.alpha),
+                delta: gamma_to_delta(angs.gamma),
                 lambda: cos_beta_to_lambda(angs.cos_beta, angs.alpha),
-                omega: angs.gamma,
+                omega: alpha_to_omega(angs.alpha),
             }
         }
     }
 
     impl From<FundAngles> for EulerAngles {
         fn from(angs: FundAngles) -> Self {
-            let alpha = delta_to_alpha(angs.delta);
-            let cos_beta = lambda_to_cos_beta(angs.lambda, alpha);
-            let gamma = omega_to_gamma(angs.omega);
+            let gamma = delta_to_gamma(angs.delta);
+            let cos_beta = lambda_to_cos_beta(angs.lambda, gamma);
+            let alpha = omega_to_alpha(angs.omega);
             Self { alpha, cos_beta, gamma }
         }
     }
@@ -1086,15 +1087,15 @@ fn grids_diff_norm(g1: &fnd::FundGrid, g2: &fnd::FundGrid) -> f64 {
 }
 
 fn main() {
-    // let bnds = parse_bnds("bnds-10k.stface");
-    // let num_vols = count_volumes_from_bnds(&bnds);
-    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    let bnds = parse_bnds("bnds-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    // let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
 
-    let segms = 5;
+    let segms = 22;
     let mut grid = fnd::FundGrid::new(segms);
     grid.normalize_grain_volumes(&mut g);
     grid.add_from_iter(g.node_weights());
@@ -1110,7 +1111,7 @@ fn main() {
     let now = Instant::now();
     let mut texture_sum = ori_opt::texture_sum(&mut grid);
     println!("starting texture index: {}", texture_sum * grid.dvol);
-    for i in 0..1_000_000 {
+    for i in 0..100_000_000 {
         if let Some(texidx) = ori_opt::iterate_rotations_cubic_isotropic(
             &mut g, &mut grid, &mut texture_sum, &mut rng
         ) {
