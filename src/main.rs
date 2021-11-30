@@ -4,7 +4,7 @@ use rand::prelude::*;
 use rand::distributions::Uniform as RandUniform;
 use rand_pcg::Pcg64;
 use nalgebra as na;
-use na::{ComplexField, Quaternion, UnitQuaternion, Vector3};
+use na::{Quaternion, UnitQuaternion, Vector3};
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
 use statrs::distribution::LogNormal as StatLogNormal;
@@ -13,8 +13,6 @@ use std::fs::File;
 use std::io::Write;
 use std::panic;
 use std::time::Instant;
-
-use crate::mis_opt::diff_norm;
 
 type Orientation = UnitQuaternion<f64>;
 #[derive(Clone, Copy, Debug)]
@@ -119,11 +117,35 @@ fn parse_graph(bnds_path: &str, volumes_path: &str) -> PolyGraph {
     build_graph(bnds, volumes)
 }
 
-fn write_orientations(g: &PolyGraph, path: &str) {
+fn write_orientations_quat(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
     for w in g.node_weights() {
         let q = &w.orientation.quat;
         writeln!(&mut file, "{} {} {} {}", q.w, q.i, q.j, q.k).unwrap();
+    }
+}
+
+fn write_orientations_euler(g: &PolyGraph, path: &str) {
+    let mut file = File::create(path).unwrap();
+    for w in g.node_weights() {
+        // let angs = EulerAngles::from(w.orientation.fund);
+        let q = w.orientation.quat;
+        // for s in cube_rotational_symmetry() {
+        //     let angs = EulerAngles::from(s * q);
+        //     writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
+        // }
+        let angs = EulerAngles::from(q);
+        if !fnd::euler_angles_inside(angs) {
+            println!("da fock: {:?}", angs);
+        }
+        writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
+    }
+}
+
+fn write_random_orientations_euler(num_oris: usize, path: &str, rng: &mut impl Rng) {
+    let mut file = File::create(path).unwrap();
+    for angs in (0..num_oris).map(|_| EulerAngles::random(rng)) {
+        writeln!(&mut file, "{} {} {}", angs.gamma, angs.cos_beta.acos(), angs.alpha).unwrap();
     }
 }
 
@@ -1052,7 +1074,7 @@ fn main3() {
     //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), lognorm.pdf(angle).to_radians()).unwrap();
     // }
 
-    write_orientations(&g, "orientations.out");
+    write_orientations_euler(&g, "orientations-euler.out");
 }
 
 fn grids_diff_norm(g1: &fnd::FundGrid, g2: &fnd::FundGrid) -> f64 {
@@ -1102,5 +1124,6 @@ fn main() {
 
     println!("min max f: {:?}", minmax(&grid));
 
-    write_orientations(&g, "orientations.out");
+    write_orientations_euler(&g, "orientations-euler.out");
+    // write_random_orientations_euler(g.node_count(), "orientations-euler.out", &mut rng);
 }
