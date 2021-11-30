@@ -128,16 +128,7 @@ fn write_orientations_quat(g: &PolyGraph, path: &str) {
 fn write_orientations_euler(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
     for w in g.node_weights() {
-        // let angs = EulerAngles::from(w.orientation.fund);
-        let q = w.orientation.quat;
-        // for s in cube_rotational_symmetry() {
-        //     let angs = EulerAngles::from(s * q);
-        //     writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
-        // }
         let angs = EulerAngles::from(w.orientation.fund);
-        if !fnd::euler_angles_inside(angs) {
-            println!("da fock: {:?}", angs);
-        }
         writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
     }
 }
