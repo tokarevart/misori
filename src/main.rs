@@ -125,10 +125,14 @@ fn write_orientations_quat(g: &PolyGraph, path: &str) {
     }
 }
 
-fn write_orientations_euler(g: &PolyGraph, path: &str) {
+fn write_orientations_mtex_euler(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
     for w in g.node_weights() {
-        let angs = EulerAngles::from(w.orientation.fund);
+        // inversed quaternion is used because 
+        // mtex defines orientations in a slightly different way 
+        // than they have been defined by Bunge.
+        // see more in MTEX article 'MTEX vs. Bunge Convention'
+        let angs = EulerAngles::from(w.orientation.quat.inverse());
         writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
     }
 }
@@ -599,17 +603,17 @@ impl From<Orientation> for EulerAngles {
         if cos_beta.abs() >= 1.0 - f64::EPSILON {
             let om11 = o.w*o.w + o.i*o.i - o.j*o.j - o.k*o.k;
             let hom21 = o.i * o.j + o.w * o.k;
-            let a = if hom21 < 0.0 { 2.0 * PI - om11.acos() } else { om11.acos() };
-            let alpha = if a >= 2.0 * PI { a - 2.0 * PI } else { a };
-            Self{ alpha, cos_beta, gamma: 0.0 }
+            let g = if hom21 < 0.0 { 2.0 * PI - om11.acos() } else { om11.acos() };
+            let gamma = if g >= 2.0 * PI { g - 2.0 * PI } else { g };
+            Self{ alpha: 0.0, cos_beta, gamma }
         } else {
-            let mut alpha = (o.w * o.j + o.i * o.k).atan2(o.w * o.i - o.j * o.k);
-            if alpha <= -f64::EPSILON {
-                alpha += 2.0 * PI;
-            }
-            let mut gamma = (o.i * o.k - o.w * o.j).atan2(o.w * o.i + o.j * o.k);
+            let mut gamma = (o.w * o.j + o.i * o.k).atan2(o.w * o.i - o.j * o.k);
             if gamma <= -f64::EPSILON {
                 gamma += 2.0 * PI;
+            }
+            let mut alpha = (o.i * o.k - o.w * o.j).atan2(o.w * o.i + o.j * o.k);
+            if alpha <= -f64::EPSILON {
+                alpha += 2.0 * PI;
             }
             Self{ alpha, cos_beta, gamma }
         }
@@ -1066,7 +1070,7 @@ fn main3() {
     //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), lognorm.pdf(angle).to_radians()).unwrap();
     // }
 
-    write_orientations_euler(&g, "orientations-euler.out");
+    write_orientations_mtex_euler(&g, "orientations-euler.out");
 }
 
 fn grids_diff_norm(g1: &fnd::FundGrid, g2: &fnd::FundGrid) -> f64 {
@@ -1102,7 +1106,7 @@ fn main() {
     let now = Instant::now();
     let mut texture_sum = ori_opt::texture_sum(&mut grid);
     println!("starting texture index: {}", texture_sum * grid.dvol);
-    for i in 0..100_000_000 {
+    for i in 0..10_000_000 {
         if let Some(texidx) = ori_opt::iterate_rotations_cubic_isotropic(
             &mut g, &mut grid, &mut texture_sum, &mut rng
         ) {
@@ -1116,6 +1120,6 @@ fn main() {
 
     println!("min max f: {:?}", minmax(&grid));
 
-    write_orientations_euler(&g, "orientations-euler.out");
+    write_orientations_mtex_euler(&g, "orientations-euler.out");
     // write_random_orientations_euler(g.node_count(), "orientations-euler.out", &mut rng);
 }
