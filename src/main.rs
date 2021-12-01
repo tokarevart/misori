@@ -1242,8 +1242,8 @@ mod tests {
         for &basis in &syms {
             println!("{:?}", EulerAngles::from(basis));
         }
-    
-        for _ in 0..1_000_000 {
+        
+        for _ in 0..100_000 {
             test_rotate_to_fund_domain(
                 fnd::random_euler_angles(&mut rng).into(), 
                 &syms
