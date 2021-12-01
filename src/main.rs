@@ -14,27 +14,28 @@ use std::io::Write;
 use std::panic;
 use std::time::Instant;
 
-type Orientation = UnitQuaternion<f64>;
+type UnitQuat = UnitQuaternion<f64>;
+use fnd::FundAngles;
 #[derive(Clone, Copy, Debug)]
 pub struct GrainOrientation {
-    quat: Orientation, 
-    fund: fnd::FundAngles,
+    pub quat: UnitQuat, 
+    pub fund: FundAngles,
 }
 
 impl GrainOrientation {
-    pub fn new(quat: Orientation, fund: fnd::FundAngles) -> Self {
+    pub fn new(quat: UnitQuat, fund: FundAngles) -> Self {
         Self{ quat, fund }
     }
 
     pub fn identity() -> Self {
         Self{ 
-            quat: Orientation::identity(), 
-            fund: fnd::FundAngles::identity(), 
+            quat: UnitQuat::identity(), 
+            fund: FundAngles::identity(), 
         }
     }
 
     pub fn random(rng: &mut impl Rng) -> Self {
-        let fund = fnd::FundAngles::random(rng);
+        let fund = FundAngles::random(rng);
         let quat = fund.into();
         Self{ quat, fund }
     }
@@ -42,8 +43,8 @@ impl GrainOrientation {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Grain {
-    orientation: GrainOrientation,
-    volume: f64,
+    pub orientation: GrainOrientation,
+    pub volume: f64,
 }
 
 impl Grain {
@@ -154,7 +155,7 @@ fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
     }
 }
 
-fn cube_rotational_symmetry() -> Vec<Orientation> {
+fn cube_rotational_symmetry() -> Vec<UnitQuat> {
     let dirs = vec![
         Vector3::new(1.0, 0.0, 0.0),
         Vector3::new(-1.0, 0.0, 0.0),
@@ -179,7 +180,7 @@ fn cube_rotational_symmetry() -> Vec<Orientation> {
             let x = dirs[x_id];
             let y = dirs[y_id];
             let z = x.cross(&y);
-            Orientation::from_basis_unchecked(&[x, y, z])
+            UnitQuat::from_basis_unchecked(&[x, y, z])
         })
         .collect()
 }
@@ -331,7 +332,7 @@ impl Histogram {
 }
 
 pub mod fnd {
-    use crate::{Grain, EulerAngles, Orientation, PolyGraph};
+    use crate::{Grain, EulerAngles, UnitQuat, PolyGraph};
     use rand::prelude::*;
     use std::f64::consts::*;
 
@@ -356,26 +357,42 @@ pub mod fnd {
     // }
 
     fn delta_to_alpha(delta: f64) -> f64 {
-        // max abs residual is around 1.54e-7 in case 100 approx points
+        // max abs residual is around 3.38e-13 in case 100 approx points
         let (mut alpha, coefs) = if delta < 0.5 {
-            (-1.5412213799217173e-7, [
-                1.7877131375353352,
-                -0.0014811153979554467,
-                -1.1242642361745494,
-                -0.21652706694161616,
-                2.6143000507326315,
-                -2.7891325822727,
-                1.0062394665068222,
+            (2.0448233504165804e-14, [
+                1.7876780408089668,
+                1.3957255727288031e-8,
+                -1.1493775357161522,
+                0.00003227140841001601,
+                1.5734615835533645,
+                0.009684809587727385,
+                -2.6610699137381117,
+                0.6615305028878575,
+                1.2019327104448414,
+                12.353681097537635,
+                -41.01828197417929,
+                58.220347090514046,
+                -45.426005060530905,
+                19.04083597215755,
+                -3.3205182452784934,
             ])
         } else {
-            (0.29394882696857055, [
-                0.9262309556426349,
-                -0.7636043427447508,
-                3.5883576821444523,
-                -6.236365775641571,
-                7.0105333499686635,
-                -4.254543681618522,
-                1.0062394661975618,
+            (0.29654882195121857, [
+                0.9596827151142042,
+                -1.6942085152712263,
+                11.14216293100142,
+                -39.382022778552745,
+                97.48178619662198,
+                -161.35199891129258,
+                152.9014328909631,
+                4.841500855128998,
+                -272.4729314032373,
+                476.0752528483592,
+                -472.81927326175037,
+                304.03431682631447,
+                -125.55179337654157,
+                30.39869523141203,
+                -3.2883547434257294,
             ])
         };
 
@@ -388,7 +405,8 @@ pub mod fnd {
     }
 
     fn alpha_to_delta(alpha: f64) -> f64 {
-        3.0 * if alpha < FRAC_PI_4 { 
+        const FRAC_6_PI: f64 = 1.909859317102744;
+        FRAC_6_PI * if alpha < FRAC_PI_4 { 
             alpha - (alpha.sin() * FRAC_1_SQRT_2).asin()
         } else { 
             let (ca, sa) = (alpha.cos(), alpha.sin());
@@ -455,11 +473,11 @@ pub mod fnd {
         }
     }
 
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct FundAngles {
-        delta: f64,  // [0;1)
-        lambda: f64, // [0;1)
-        omega: f64,  // [0;1)
+        pub delta: f64,  // [0;1)
+        pub lambda: f64, // [0;1)
+        pub omega: f64,  // [0;1)
     }
 
     impl FundAngles {
@@ -503,13 +521,13 @@ pub mod fnd {
         }
     }
 
-    impl From<Orientation> for FundAngles {
-        fn from(o: Orientation) -> Self {
+    impl From<UnitQuat> for FundAngles {
+        fn from(o: UnitQuat) -> Self {
             EulerAngles::from(o).into()
         }
     }
 
-    impl From<FundAngles> for Orientation {
+    impl From<FundAngles> for UnitQuat {
         fn from(angs: FundAngles) -> Self {
             EulerAngles::from(angs).into()
         }
@@ -583,11 +601,11 @@ pub mod fnd {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EulerAngles {
-    alpha: f64,    // [0;2*Pi)
-    cos_beta: f64, // [0;  Pi)
-    gamma: f64,    // [0;2*Pi)
+    pub alpha: f64,    // [0;2*Pi)
+    pub cos_beta: f64, // [0;  Pi)
+    pub gamma: f64,    // [0;2*Pi)
 }
 
 impl EulerAngles {
@@ -600,8 +618,8 @@ impl EulerAngles {
     }
 }
 
-impl From<Orientation> for EulerAngles {
-    fn from(o: Orientation) -> Self {
+impl From<UnitQuat> for EulerAngles {
+    fn from(o: UnitQuat) -> Self {
         let cos_beta = o.w*o.w - o.i*o.i - o.j*o.j + o.k*o.k;
         if cos_beta.abs() >= 1.0 - f64::EPSILON {
             let om11 = o.w*o.w + o.i*o.i - o.j*o.j - o.k*o.k;
@@ -623,7 +641,7 @@ impl From<Orientation> for EulerAngles {
     }
 }
 
-impl From<EulerAngles> for Orientation {
+impl From<EulerAngles> for UnitQuat {
     fn from(angs: EulerAngles) -> Self {
         let factor_plus_b = (0.5 + 0.5 * angs.cos_beta).sqrt();
         let factor_minus_b = (0.5 - 0.5 * angs.cos_beta).sqrt();
@@ -635,7 +653,7 @@ impl From<EulerAngles> for Orientation {
             factor_minus_b * half_diff_a_g.sin(), 
             factor_plus_b * half_sum_a_g.sin(), 
         );
-        Orientation::new_unchecked(q)
+        UnitQuat::new_unchecked(q)
     }
 }
 
@@ -643,8 +661,8 @@ mod mis_opt {
     use crate::*;
 
     fn misorientation_angle(
-        o1: Orientation, o2: Orientation, 
-        syms: &Vec<Orientation>
+        o1: UnitQuat, o2: UnitQuat, 
+        syms: &Vec<UnitQuat>
     ) -> f64 {
         let r = o1.rotation_to(&o2);
         syms.iter()
@@ -673,7 +691,7 @@ mod mis_opt {
     }
     
     fn update_angle(
-        g: &mut PolyGraph, e: EdgeIndex, syms: &Vec<Orientation>
+        g: &mut PolyGraph, e: EdgeIndex, syms: &Vec<UnitQuat>
     ) -> f64 {
         let (n1, n2) = g.edge_endpoints(e).unwrap();
         let (o1, o2) = (g[n1].orientation.quat, g[n2].orientation.quat);
@@ -683,7 +701,7 @@ mod mis_opt {
     }
     
     fn update_grain_angles(
-        g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
+        g: &mut PolyGraph, n: NodeIndex, syms: &Vec<UnitQuat>
     ) -> Vec<f64> {
         let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
         let mut prev_angles = Vec::with_capacity(edges.len());
@@ -694,7 +712,7 @@ mod mis_opt {
     }
     
     fn update_grain_angles_noret(
-        g: &mut PolyGraph, n: NodeIndex, syms: &Vec<Orientation>
+        g: &mut PolyGraph, n: NodeIndex, syms: &Vec<UnitQuat>
     ) {
         let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
         for e in edges {
@@ -709,7 +727,7 @@ mod mis_opt {
         }
     }
     
-    pub fn update_angles(g: &mut PolyGraph, syms: &Vec<Orientation>) {
+    pub fn update_angles(g: &mut PolyGraph, syms: &Vec<UnitQuat>) {
         for e in g.edge_indices() {
             update_angle(g, e, syms);
         }
@@ -762,7 +780,7 @@ mod mis_opt {
     }
     
     pub fn iterate_swaps(
-        g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
+        g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<UnitQuat>,
         rng: &mut impl Rng, f: impl Fn(f64) -> f64
     ) -> Option<f64> {
     
@@ -796,7 +814,7 @@ mod mis_opt {
     }
     
     pub fn iterate_rotations(
-        g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<Orientation>,
+        g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<UnitQuat>,
         rng: &mut impl Rng, f: impl Fn(f64) -> f64
     ) -> Option<f64> {
     
@@ -853,25 +871,25 @@ mod ori_opt {
     ) -> ((fnd::CellIdxs, f64), (fnd::CellIdxs, f64)) {
         let vol = g[n].volume;
 
-        let (prev_idxs, prev_f1) = {
+        let (prev_idxs, prev_h1) = {
             let idxs = grid.idxs(g[n].orientation.fund);
-            let prev_f = grid.at(idxs);
+            let prev_h = grid.at(idxs);
             *grid.at_mut(idxs) -= vol;
-            (idxs, prev_f)
+            (idxs, prev_h)
         };
-        let (cur_idxs, prev_f2) = {
+        let (cur_idxs, prev_h2) = {
             g[n].orientation = GrainOrientation::random(rng);
             let mut idxs = grid.idxs(g[n].orientation.fund);
             while idxs == prev_idxs {
                 g[n].orientation = GrainOrientation::random(rng);
                 idxs = grid.idxs(g[n].orientation.fund);
             }
-            let prev_f = grid.at(idxs);
+            let prev_h = grid.at(idxs);
             *grid.at_mut(idxs) += vol;
-            (idxs, prev_f)
+            (idxs, prev_h)
         };
-        *texture_sum += 2.0 * vol * ((prev_f2 - prev_f1) + vol);
-        ((prev_idxs, prev_f1), (cur_idxs, prev_f2))
+        *texture_sum += 2.0 * vol * ((prev_h2 - prev_h1) + vol);
+        ((prev_idxs, prev_h1), (cur_idxs, prev_h2))
     }
     
     pub fn iterate_rotations_cubic_isotropic(
@@ -897,9 +915,37 @@ mod ori_opt {
             None
         }
     }
+
+    #[derive(Debug, Clone, Copy)]
+    struct PrevData {
+        idxs: fnd::CellIdxs,
+        height: f64,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct RotatorBackup {
+        grain_idx: NodeIndex, 
+        texture_sum: f64,
+        prev_ori_data: PrevData,
+        cur_ori_data: PrevData,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Rotator {
+        backup: Option<RotatorBackup>,
+    }
+
+    impl Rotator {
+
+    }
+
+    // pub fn rotate_cubic_isotropic(
+    //     g: &mut PolyGraph, grid: &mut fnd::FundGrid, 
+    //     texture_sum: &mut f64, rng: &mut impl Rng,
+    // )
 }
 
-fn rotate_to_fund_domain(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
+fn rotate_to_fund_domain(o: UnitQuat, syms: &Vec<UnitQuat>) -> UnitQuat {
     for s in syms {
         let q = s * o;
         let angs = EulerAngles::from(q);
@@ -908,28 +954,6 @@ fn rotate_to_fund_domain(o: Orientation, syms: &Vec<Orientation>) -> Orientation
         }
     }
     panic!("failed to rotate to fundamental domain")
-}
-
-fn rotate_to_fund_domain_debug(o: Orientation, syms: &Vec<Orientation>) -> Orientation {
-    let mut res = None;
-    for s in syms {
-        let q = s * o;
-        let angs = EulerAngles::from(q);
-        if fnd::euler_angles_inside(angs) {
-            if res.is_none() {
-                res = Some(q);
-            } else {
-                println!("q{:?}\nr{:?}", angs, EulerAngles::from(res.unwrap()));
-                panic!("multiple orientations in fundamental domain")
-            }
-        }
-    }
-    if let Some(q) = res {
-        q
-    } else {
-        println!("{:?}\n{:?}", o, EulerAngles::from(o));
-        panic!("failed to rotate to fundamental domain")
-    }
 }
 
 fn main1() {
@@ -946,43 +970,11 @@ fn main1() {
 
     let (alpha, cos_beta, gamma) = (FRAC_PI_2, 1.0 - 1e-16, FRAC_PI_3 * 2.0);
     let angs = EulerAngles{ alpha, cos_beta, gamma };
-    let q = Orientation::from(angs);
+    let q = UnitQuat::from(angs);
     let back_angs = EulerAngles::from(q);
     dbg!(angs);
     dbg!(back_angs);
     println!("alpha+gamma: {}", alpha + gamma);
-}
-
-fn main2() {
-    // let bnds = parse_bnds("bnds-10k.stface");
-    // let num_vols = count_volumes_from_bnds(&bnds);
-    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
-    let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
-
-    let mut rng = Pcg64::seed_from_u64(0);
-    set_random_orientations(&mut g, &mut rng);
-
-    let syms = cube_rotational_symmetry();
-    for basis in &syms {
-        println!("{:?}", EulerAngles::from(*basis));
-    }
-
-    let mut dummy = Orientation::identity();
-    for _ in 0..1_000_000 {
-        dummy *= rotate_to_fund_domain_debug(
-            fnd::random_euler_angles(&mut rng).into(), 
-            &syms
-        );
-    }
-    println!("dummy {:?}", dummy);
-
-    // let (alpha, cos_beta, gamma) = (0.0, 1.0 - 1e-15, FRAC_PI_2);
-    // let angs = EulerAngles{ alpha, cos_beta, gamma };
-    // let q = Orientation::from(angs);
-    // let bangs = EulerAngles::from(q);
-    // println!("deb {:?}", bangs);
-    // println!("rotated {:?}", EulerAngles::from(rotate_to_fund_domain_debug(angs.into(), &syms)));
 }
 
 fn main3() {
@@ -1125,4 +1117,148 @@ fn main() {
 
     write_orientations_mtex_euler(&g, "orientations-euler.out");
     // write_random_orientations_euler(g.node_count(), "orientations-euler.out", &mut rng);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::{AbsDiffEq, RelativeEq};
+
+    fn test_rotate_to_fund_domain(o: UnitQuat, syms: &Vec<UnitQuat>) -> UnitQuat {
+        let mut res = None;
+        for s in syms {
+            let q = s * o;
+            let angs = EulerAngles::from(q);
+            if fnd::euler_angles_inside(angs) {
+                if res.is_none() {
+                    res = Some(q);
+                } else {
+                    panic!(
+                        "multiple orientations in fundamental domain: {:?} and {:?}", 
+                        EulerAngles::from(res.unwrap()), angs
+                    )
+                }
+            }
+        }
+        if let Some(q) = res {
+            q
+        } else {
+            panic!(
+                "failed to rotate to fundamental domain: {:?}, {:?}", 
+                o, EulerAngles::from(o)
+            )
+        }
+    }
+
+    #[test]
+    fn test_fund_domain() {    
+        let mut rng = Pcg64::seed_from_u64(0);
+        let syms = cube_rotational_symmetry();
+        for &basis in &syms {
+            println!("{:?}", EulerAngles::from(basis));
+        }
+    
+        for _ in 0..1_000_000 {
+            test_rotate_to_fund_domain(
+                fnd::random_euler_angles(&mut rng).into(), 
+                &syms
+            );
+        }
+    }
+
+    impl AbsDiffEq for EulerAngles {
+        type Epsilon = <f64 as AbsDiffEq>::Epsilon;
+
+        fn default_epsilon() -> Self::Epsilon {
+            f64::default_epsilon()
+        }
+
+        fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
+            f64::abs_diff_eq(&self.alpha, &other.alpha, epsilon) &&
+            f64::abs_diff_eq(&self.cos_beta, &other.cos_beta, epsilon) &&
+            f64::abs_diff_eq(&self.gamma, &other.gamma, epsilon)
+        }
+    }
+
+    impl RelativeEq for EulerAngles {
+        fn default_max_relative() -> Self::Epsilon {
+            f64::default_max_relative()
+        }
+
+        fn relative_eq(
+            &self, other: &Self, 
+            epsilon: Self::Epsilon, max_relative: Self::Epsilon
+        ) -> bool {
+            f64::relative_eq(&self.alpha, &other.alpha, epsilon, max_relative) &&
+            f64::relative_eq(&self.cos_beta, &other.cos_beta, epsilon, max_relative) &&
+            f64::relative_eq(&self.gamma, &other.gamma, epsilon, max_relative)
+        }
+    }
+
+    #[test]
+    fn test_quaternion_and_euler_angles_conversion() {
+        use approx::assert_relative_eq;
+
+        let mut rng = Pcg64::seed_from_u64(0);
+        for _ in 0..1_000_000 {
+            let angs = EulerAngles::random(&mut rng);
+            let q = UnitQuat::from(angs);
+            let back = EulerAngles::from(q);
+            assert_relative_eq!(angs, back, max_relative = f32::EPSILON as f64);
+        }
+        for _ in 0..1_000 {
+            let mut angs = EulerAngles::random(&mut rng);
+            angs.cos_beta = 1.0;
+            let mut correct_back_alpha = angs.alpha + angs.gamma;
+            if correct_back_alpha >= 2.0 * PI {
+                correct_back_alpha -= 2.0 * PI;
+            }
+            let q = UnitQuat::from(angs);
+            let back = EulerAngles::from(q);
+            let correct_back = EulerAngles{ alpha: correct_back_alpha, cos_beta: 1.0, gamma: 0.0 };
+            assert_relative_eq!(correct_back, back, max_relative = f32::EPSILON as f64);
+        }
+    }
+
+    impl AbsDiffEq for FundAngles {
+        type Epsilon = <f64 as AbsDiffEq>::Epsilon;
+
+        fn default_epsilon() -> Self::Epsilon {
+            f64::default_epsilon()
+        }
+
+        fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
+            f64::abs_diff_eq(&self.delta, &other.delta, epsilon) &&
+            f64::abs_diff_eq(&self.lambda, &other.lambda, epsilon) &&
+            f64::abs_diff_eq(&self.omega, &other.omega, epsilon)
+        }
+    }
+
+    impl RelativeEq for FundAngles {
+        fn default_max_relative() -> Self::Epsilon {
+            f64::default_max_relative()
+        }
+
+        fn relative_eq(
+            &self, other: &Self, 
+            epsilon: Self::Epsilon, max_relative: Self::Epsilon
+        ) -> bool {
+            f64::relative_eq(&self.delta, &other.delta, epsilon, max_relative) &&
+            f64::relative_eq(&self.lambda, &other.lambda, epsilon, max_relative) &&
+            f64::relative_eq(&self.omega, &other.omega, epsilon, max_relative)
+        }
+    }
+
+    #[test]
+    fn test_fund_angles_and_euler_angles_conversion() {
+        use approx::assert_relative_eq;
+
+        let mut rng = Pcg64::seed_from_u64(0);
+        for _ in 0..1_000_000 {
+            let angs = FundAngles::random(&mut rng);
+            let eul = EulerAngles::from(angs);
+            let back = FundAngles::from(eul);
+            assert_relative_eq!(angs, back, max_relative = f32::EPSILON as f64 * 10.0);
+        }
+    }
 }
