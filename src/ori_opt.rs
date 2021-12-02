@@ -17,9 +17,9 @@ struct CellBackup {
 }
 
 #[derive(Debug, Clone)]
-pub struct RotatorBackup {
-    grain_idx: NodeIndex, 
+struct RotatorBackup {
     texture_sum: f64,
+    grain_idx: NodeIndex, 
     prev_ori: GrainOrientation,
     prev_cell_bu: CellBackup,
     cur_cell_bu: CellBackup,
@@ -99,7 +99,7 @@ impl Rotator {
         self.rotate_grain_ori(grain_idx, g, grid, rng)
     }
 
-    pub fn restore_previous(&mut self, g: &mut PolyGraph, grid: &mut fnd::FundGrid) {
+    pub fn undo(&mut self, g: &mut PolyGraph, grid: &mut fnd::FundGrid) {
         let RotatorBackup{ 
             grain_idx, 
             prev_ori, 

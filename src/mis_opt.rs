@@ -91,28 +91,6 @@ impl Histogram {
         }
     }
 
-    pub fn update_with_grain_new_angles(
-        &mut self, g: &PolyGraph, 
-        n: NodeIndex, prev_angles: &Vec<f64>
-    ) -> Histogram {
-
-        let prev_hist = self.clone();
-        for (e, &pa) in g.edges(n).zip(prev_angles) {
-            self.update_with_edge_new_angle(*e.weight(), pa);
-        }
-
-        prev_hist
-    }
-
-    pub fn update_with_grain_new_angles_noret(
-        &mut self, g: &PolyGraph, 
-        n: NodeIndex, prev_angles: &Vec<f64>
-    ) {
-        for (e, &pa) in g.edges(n).zip(prev_angles) {
-            self.update_with_edge_new_angle(*e.weight(), pa);
-        }
-    }
-
     pub fn update_with_2grains_new_angles(
         &mut self, g: &PolyGraph, 
         n1: NodeIndex, n2: NodeIndex, 
@@ -192,7 +170,7 @@ fn update_angle(
 fn update_grain_angles(
     g: &mut PolyGraph, n: NodeIndex, syms: &Vec<UnitQuat>
 ) -> Vec<f64> {
-    
+
     let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
     let mut prev_angles = Vec::with_capacity(edges.len());
     for e in edges {
@@ -201,11 +179,8 @@ fn update_grain_angles(
     prev_angles
 }
 
-fn update_grain_angles_noret(
-    g: &mut PolyGraph, n: NodeIndex, syms: &Vec<UnitQuat>
-) {
-    let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
-    for e in edges {
+pub fn update_angles(g: &mut PolyGraph, syms: &Vec<UnitQuat>) {
+    for e in g.edge_indices() {
         update_angle(g, e, syms);
     }
 }
@@ -214,12 +189,6 @@ fn restore_grain_angles(g: &mut PolyGraph, n: NodeIndex, prev_angles: Vec<f64>) 
     let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
     for (&e, a) in edges.iter().zip(prev_angles) {
         g[e].angle = a;
-    }
-}
-
-pub fn update_angles(g: &mut PolyGraph, syms: &Vec<UnitQuat>) {
-    for e in g.edge_indices() {
-        update_angle(g, e, syms);
     }
 }
 
@@ -303,39 +272,105 @@ pub fn iterate_swaps(
     }
 }
 
-pub fn iterate_rotations(
-    g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<UnitQuat>,
-    rng: &mut impl Rng, f: impl Fn(f64) -> f64
-) -> Option<f64> {
+#[derive(Debug, Clone)]
+struct RotatorBackup {
+    diff_norm: f64,
+    grain_idx: NodeIndex, 
+    ori: GrainOrientation,
+    angles: Vec<f64>,
+    hist: Histogram,
+}
 
-    const MAX_ROTS: usize = 4;
+pub enum OptResult {
+    MoreOptimal(f64),
+    SameOrLessOptimal(f64),
+}
 
-    let distr = RandUniform::new(0, g.node_count() as u32);
-    let n: NodeIndex = rng.sample(distr).into();
-    
-    let prev_ori = g[n].orientation;
-    g[n].orientation = GrainOrientation::random(rng);
-    let prev_angles = update_grain_angles(g, n, syms);
-    let prev_hist = hist.update_with_grain_new_angles(g, n, &prev_angles);
+#[derive(Debug, Clone)]
+pub struct Rotator {
+    backup: Option<RotatorBackup>,
+    diff_norm: f64,
+}
 
-    let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
-    let dnorm = diff_norm(hist, |x| f(x));
-    if dnorm < prev_dnorm {
-        Some(dnorm)
-    } else {
-        for _ in 0..MAX_ROTS - 1 {
-            g[n].orientation = GrainOrientation::random(rng);
-            let prev_angles = update_grain_angles(g, n, syms);
-            hist.update_with_grain_new_angles_noret(g, n, &prev_angles);
-            let dnorm = diff_norm(hist, |x| f(x));
-            if dnorm < prev_dnorm {
-                return Some(dnorm);
-            }
+impl Rotator {
+    pub fn new() -> Self {
+        Self{ backup: None, diff_norm: f64::MAX }
+    }
+
+    pub fn diff_norm(&self) -> f64 {
+        self.diff_norm
+    }
+
+    fn update_hist_with_grain_new_angles(
+        hist: &mut Histogram, g: &PolyGraph, n: NodeIndex, prev_angles: &Vec<f64>
+    ) -> Histogram {
+
+        let prev_hist = hist.clone();
+        for (e, &pa) in g.edges(n).zip(prev_angles) {
+            hist.update_with_edge_new_angle(*e.weight(), pa);
         }
 
+        prev_hist
+    }
+
+    pub fn rotate_grain_ori(
+        &mut self, grain_idx: NodeIndex, g: &mut PolyGraph, hist: &mut Histogram, 
+        syms: &Vec<UnitQuat>, f: impl Fn(f64) -> f64, rng: &mut impl Rng, 
+    ) -> OptResult {
+        
+        let prev_ori = g[grain_idx].orientation;
+        g[grain_idx].orientation = GrainOrientation::random(rng);
+        let prev_angles = update_grain_angles(g, grain_idx, syms);
+        let prev_hist = Self::update_hist_with_grain_new_angles(hist, g, grain_idx, &prev_angles);
+        let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
+        self.backup = Some(RotatorBackup{
+            diff_norm: prev_dnorm,
+            grain_idx,
+            ori: prev_ori,
+            angles: prev_angles,
+            hist: prev_hist,
+        });
+
+        let dnorm = diff_norm(hist, |x| f(x));
+        if dnorm < prev_dnorm {
+            OptResult::MoreOptimal(dnorm)
+        } else {
+            OptResult::SameOrLessOptimal(dnorm)
+        }
+    }
+
+    pub fn rotate_random_grain_ori(
+        &mut self, g: &mut PolyGraph, hist: &mut Histogram, 
+        syms: &Vec<UnitQuat>, f: impl Fn(f64) -> f64, rng: &mut impl Rng,
+    ) -> OptResult {
+
+        let distr = RandUniform::new(0, g.node_count() as u32);
+        let grain_idx: NodeIndex = rng.sample(distr).into();
+        self.rotate_grain_ori(grain_idx, g, hist, syms, f, rng)
+    }
+
+    pub fn undo(&mut self, g: &mut PolyGraph, hist: &mut Histogram) {
+        let &RotatorBackup{ 
+            grain_idx,
+            ori: prev_ori,
+            ..
+        } = self.backup.as_ref().unwrap();
+
+        g[grain_idx].orientation = prev_ori;
+        self.finish_undo(g, hist)
+    }
+
+    pub fn finish_undo(&mut self, g: &mut PolyGraph, hist: &mut Histogram) {
+        let RotatorBackup{ 
+            diff_norm: prev_diff_norm,
+            grain_idx,
+            angles: prev_angles,
+            hist: prev_hist,
+            ..
+        } = self.backup.take().unwrap();
+
         *hist = prev_hist;
-        g[n].orientation = prev_ori;
-        restore_grain_angles(g, n, prev_angles);
-        None
+        restore_grain_angles(g, grain_idx, prev_angles);
+        self.diff_norm = prev_diff_norm;
     }
 }

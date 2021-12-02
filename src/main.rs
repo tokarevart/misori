@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use misori::*;
 
-fn main1() {
+fn main() {
     // let bnds = parse_bnds("bnds-10k.stface");
     // let num_vols = count_volumes_from_bnds(&bnds);
     // let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -19,10 +19,6 @@ fn main1() {
     set_random_orientations(&mut g, &mut rng);
 
     let syms = cube_rotational_symmetry();
-    for basis in &syms {
-        println!("{:?}", basis);
-    }
-    println!("syms {}", syms.len());
     mis_opt::update_angles(&mut g, &syms);
 
     let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
@@ -34,30 +30,16 @@ fn main1() {
     );
     let aa = mis_opt::angle_area_vec(&g);
     hist.add_from_slice(&aa);
-    // let mut file = File::create("hist.txt").unwrap();
-    // for (angle, height) in hist.pairs() {
-    //     println!("{} {}", angle.to_degrees(), height);
-    //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), height).unwrap();
-    // }
 
     let uni = StatUniform::new(hist_beg, hist_end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
-
-    let lognorn_stop = 0.0856;
     
     // let now = Instant::now();
-    // for i in 0..3_000_000 {
+    // for i in 0..1_000_000 {
     //     if let Some(dnorm) = iterate_swaps(
     //         &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
     //     ) {
     //         // println!("iter {}, norm {}", i, dnorm);
-    //         if i >= 1_000_000 {
-    //             println!("iter {}, norm {}", i, dnorm);
-    //             break
-    //         }
-    //         // if dnorm < lognorn_stop {
-    //         //     break
-    //         // }
     //     }
     // }
     // println!(
@@ -66,21 +48,14 @@ fn main1() {
     // );
 
     let now = Instant::now();
-    for i in 0..3_000_000 {
-        if let Some(dnorm) = mis_opt::iterate_rotations(
-            &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
+    let mut rotator = mis_opt::Rotator::new();
+    for i in 0..1_000_000 {
+        if let mis_opt::OptResult::MoreOptimal(dnorm) = rotator.rotate_random_grain_ori(
+            &mut g, &mut hist, &syms, |x| lognorm.pdf(x), &mut rng
         ) {
             // println!("iter {}, norm {}", i, dnorm);
-            if i >= 140_000 {
-                println!("iter {}, norm {}", i, dnorm);
-                break
-            }
-            // if dnorm < lognorn_stop {
-            //     break
-            // }
-            // if dnorm < 0.79861 { // uniform test
-            //     break
-            // }
+        } else {
+            rotator.undo(&mut g, &mut hist);
         }
     }
     println!(
@@ -92,14 +67,11 @@ fn main1() {
     for (angle, height) in hist.pairs() {
         writeln!(&mut file, "{}\t{}", angle.to_degrees(), height.to_radians()).unwrap();
     }
-    // for angle in (0..30).map(|i| (i as f64 + 0.5) * (hist_end - hist_beg) / 30.0) {
-    //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), lognorm.pdf(angle).to_radians()).unwrap();
-    // }
 
     write_orientations_mtex_euler(&g, "orientations-euler.out");
 }
 
-fn main() {
+fn main2() {
     let bnds = parse_bnds("bnds-10k.stface");
     let num_vols = count_volumes_from_bnds(&bnds);
     let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -130,7 +102,7 @@ fn main() {
         ) {
             // println!("iter {}, texture index {}", i, texidx);
         } else {
-            rotator.restore_previous(&mut g, &mut grid);
+            rotator.undo(&mut g, &mut grid);
         }
     }
     println!(
