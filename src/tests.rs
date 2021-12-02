@@ -1,8 +1,8 @@
 use crate::*;
 use rand_pcg::Pcg64;
-use approx::{AbsDiffEq, RelativeEq};
+use approx::*;
 
-fn test_rotate_to_fund_domain(o: UnitQuat, syms: &Vec<UnitQuat>) -> UnitQuat {
+fn rotate_to_fund_domain(o: UnitQuat, syms: &Vec<UnitQuat>) -> UnitQuat {
     let mut res = None;
     for s in syms {
         let q = s * o;
@@ -37,7 +37,7 @@ fn test_fund_domain() {
     }
     
     for _ in 0..100_000 {
-        test_rotate_to_fund_domain(
+        rotate_to_fund_domain(
             fnd::random_euler_angles(&mut rng).into(), 
             &syms
         );
@@ -46,8 +46,6 @@ fn test_fund_domain() {
 
 #[test]
 fn test_quaternion_and_euler_angles_conversion() {
-    use approx::assert_relative_eq;
-
     let mut rng = Pcg64::seed_from_u64(0);
     for _ in 0..1_000_000 {
         let angs = EulerAngles::random(&mut rng);

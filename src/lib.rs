@@ -132,21 +132,18 @@ pub fn write_orientations_mtex_euler(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
     for w in g.node_weights() {
         // inversed quaternion is used because 
-        // mtex defines orientations in a slightly different way 
+        // MTEX defines orientations in a slightly different way 
         // than they have been defined by Bunge.
-        // see more in MTEX article 'MTEX vs. Bunge Convention'
+        // see more in the MTEX article 'MTEX vs. Bunge Convention'
         let angs = EulerAngles::from(w.orientation.quat.inverse());
-        let tmp = w.orientation.fund.into();
-        if !fnd::euler_angles_inside(tmp) {
-            println!("da fock: {:?}", tmp);
-        }
         writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
     }
 }
 
-pub fn write_random_orientations_euler(num_oris: usize, path: &str, rng: &mut impl Rng) {
+pub fn write_random_orientations_mtex_euler(num_oris: usize, path: &str, rng: &mut impl Rng) {
     let mut file = File::create(path).unwrap();
-    for angs in (0..num_oris).map(|_| EulerAngles::random(rng)) {
+    for q in (0..num_oris).map(|_| UnitQuat::from(EulerAngles::random(rng))) {
+        let angs = EulerAngles::from(q.inverse());
         writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
     }
 }

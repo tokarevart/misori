@@ -141,5 +141,5 @@ fn main() {
     println!("min max f: {:?}", minmax(&grid));
 
     write_orientations_mtex_euler(&g, "orientations-euler.out");
-    // write_random_orientations_euler(g.node_count(), "orientations-euler.out", &mut rng);
+    // write_random_orientations_mtex_euler(g.node_count(), "orientations-euler.out", &mut rng);
 }

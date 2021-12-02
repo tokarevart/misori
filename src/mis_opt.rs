@@ -95,6 +95,7 @@ impl Histogram {
         &mut self, g: &PolyGraph, 
         n: NodeIndex, prev_angles: &Vec<f64>
     ) -> Histogram {
+
         let prev_hist = self.clone();
         for (e, &pa) in g.edges(n).zip(prev_angles) {
             self.update_with_edge_new_angle(*e.weight(), pa);
@@ -117,6 +118,7 @@ impl Histogram {
         n1: NodeIndex, n2: NodeIndex, 
         prev_angles1: &Vec<f64>, prev_angles2: &Vec<f64>,
     ) -> Histogram {
+
         let prev_hist = self.clone();
         for (e, &pa) in g.edges(n1).zip(prev_angles1) {
             self.update_with_edge_new_angle(*e.weight(), pa);
@@ -179,6 +181,7 @@ fn misorientation_angle(
 fn update_angle(
     g: &mut PolyGraph, e: EdgeIndex, syms: &Vec<UnitQuat>
 ) -> f64 {
+
     let (n1, n2) = g.edge_endpoints(e).unwrap();
     let (o1, o2) = (g[n1].orientation.quat, g[n2].orientation.quat);
     let prev_angle = g[e].angle;
@@ -189,6 +192,7 @@ fn update_angle(
 fn update_grain_angles(
     g: &mut PolyGraph, n: NodeIndex, syms: &Vec<UnitQuat>
 ) -> Vec<f64> {
+    
     let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
     let mut prev_angles = Vec::with_capacity(edges.len());
     for e in edges {
