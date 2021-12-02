@@ -5,23 +5,6 @@ use std::f64::consts::*;
 const TWOPI: f64 = 6.283185307179586;
 const INV_TWOPI: f64 = 1.0 / TWOPI;
 
-// fn delta_to_alpha_rough(delta: f64) -> f64 {
-//     let coefs = [
-//         1.0616904724669767, 
-//         0.5304936828043207, 
-//         -1.6125716869506046, 
-//         1.3248915389845322, 
-//         -0.33738085998446576,
-//     ];
-//     let mut alpha = 0.002259301224771941;
-//     let mut x = delta;
-//     for c in coefs {
-//         alpha += c * x;
-//         x *= delta;
-//     }
-//     alpha.clamp(0.0, FRAC_PI_2 - f64::EPSILON)
-// }
-
 fn delta_to_alpha(delta: f64) -> f64 {
     // max abs residual is around 3.38e-13 in case 100 approx points
     let (mut alpha, coefs) = if delta < 0.5 {
@@ -207,7 +190,6 @@ pub struct FundGrid {
     pub cells: Vec3<f64>,
     pub segms: usize,
     pub dvol: f64,
-    //...
 }
 
 impl FundGrid {
@@ -262,6 +244,4 @@ impl FundGrid {
             *volume *= inv_vol;
         }
     }
-
-    //...
 }
