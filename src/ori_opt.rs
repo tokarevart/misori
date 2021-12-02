@@ -1,13 +1,9 @@
 use crate::*;
 
-pub fn texture_sum(grid: &fnd::FundGrid) -> f64 {
+pub fn texture_index(grid: &fnd::FundGrid) -> f64 {
     grid.cells.iter().flatten().flatten()
         .map(|&x| x * x)
-        .sum()
-}
-
-pub fn texture_index(grid: &fnd::FundGrid) -> f64 {
-    texture_sum(grid) * grid.dvol
+        .sum::<f64>() / grid.dvol
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -18,7 +14,7 @@ struct CellBackup {
 
 #[derive(Debug, Clone)]
 struct RotatorBackup {
-    texture_sum: f64,
+    texture_index: f64,
     grain_idx: NodeIndex, 
     ori: Option<GrainOrientation>,
     prev_cell_bu: CellBackup,
@@ -28,16 +24,12 @@ struct RotatorBackup {
 #[derive(Debug, Clone)]
 pub struct Rotator {
     backup: Option<RotatorBackup>,
-    texture_sum: f64,
+    pub texture_index: f64,
 }
 
 impl Rotator {
     pub fn new(grid: &fnd::FundGrid) -> Self {
-        Self{ backup: None, texture_sum: texture_sum(grid) }
-    }
-
-    pub fn texture_index(&self, grid: &fnd::FundGrid) -> f64 {
-        self.texture_sum * grid.dvol
+        Self{ backup: None, texture_index: texture_index(grid) }
     }
 
     pub fn rotate(
@@ -46,7 +38,7 @@ impl Rotator {
     ) -> OptResult {
         
         let vol = g[grain_idx].volume;
-        let prev_texsum = self.texture_sum;
+        let prev_texidx = self.texture_index;
 
         // let prev_ori = g[grain_idx].orientation;
         let (prev_ori, actual_prev_ori) = match mode {
@@ -73,22 +65,21 @@ impl Rotator {
         *grid.at_mut(cur_idxs) += vol;
         let cur_cell_bu = CellBackup{ idxs: cur_idxs, height: prev_h2 };
 
-        self.texture_sum += 2.0 * vol * ((prev_h2 - prev_h1) + vol);
+        self.texture_index += 2.0 * vol * ((prev_h2 - prev_h1) + vol) / grid.dvol;
         
         let backup = RotatorBackup{ 
             grain_idx, 
-            texture_sum: prev_texsum,
+            texture_index: prev_texidx,
             ori: prev_ori, 
             prev_cell_bu, 
             cur_cell_bu,
         };
         self.backup = Some(backup);
 
-        let texidx = self.texture_sum * grid.dvol;
-        if self.texture_sum < prev_texsum {
-            OptResult::MoreOptimal{ criterion: texidx, prev_ori: prev_ori }
+        if self.texture_index < prev_texidx {
+            OptResult::MoreOptimal{ criterion: self.texture_index, prev_ori }
         } else {
-            OptResult::SameOrLessOptimal{ criterion: texidx, prev_ori: prev_ori }
+            OptResult::SameOrLessOptimal{ criterion: self.texture_index, prev_ori }
         }
     }
 
@@ -104,7 +95,7 @@ impl Rotator {
         let RotatorBackup{
             prev_cell_bu, 
             cur_cell_bu, 
-            texture_sum,
+            texture_index,
             ..
         } = self.backup.take().unwrap();
 
@@ -112,6 +103,6 @@ impl Rotator {
         // the new orientation is in the same cell as the previous one
         *grid.at_mut(cur_cell_bu.idxs) = cur_cell_bu.height;
         *grid.at_mut(prev_cell_bu.idxs) = prev_cell_bu.height;
-        self.texture_sum = texture_sum;
+        self.texture_index = texture_index;
     }
 }

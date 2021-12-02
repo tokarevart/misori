@@ -334,9 +334,9 @@ impl Rotator {
 
         let dnorm = diff_norm(hist, |x| f(x));
         if dnorm < prev_dnorm {
-            OptResult::MoreOptimal{ criterion: dnorm, prev_ori: prev_ori }
+            OptResult::MoreOptimal{ criterion: dnorm, prev_ori }
         } else {
-            OptResult::SameOrLessOptimal{ criterion: dnorm, prev_ori: prev_ori }
+            OptResult::SameOrLessOptimal{ criterion: dnorm, prev_ori }
         }
     }
 

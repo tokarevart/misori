@@ -23,6 +23,13 @@ pub fn random_grain(g: &PolyGraph, rng: &mut impl Rng) -> NodeIndex {
     rng.sample(distr).into()
 }
 
+pub fn normalize_grain_volumes(g: &mut PolyGraph) {
+    let inv_vol = 1.0 / g.node_weights().map(|x| x.volume).sum::<f64>();
+    for Grain{ volume, .. } in g.node_weights_mut() {
+        *volume *= inv_vol;
+    }
+}
+
 pub enum RotationMode {
     Start,
     Continue{
