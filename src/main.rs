@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use misori::*;
 
-fn main() {
+fn main1() {
     // let bnds = parse_bnds("bnds-10k.stface");
     // let num_vols = count_volumes_from_bnds(&bnds);
     // let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -50,7 +50,9 @@ fn main() {
     let now = Instant::now();
     let mut rotator = mis_opt::Rotator::new();
     for i in 0..1_000_000 {
-        if let mis_opt::OptResult::MoreOptimal(dnorm) = rotator.rotate_random_grain_ori(
+        if let OptResult::MoreOptimal{ criterion: dnorm, .. } = rotator.rotate(
+            RotationMode::Start,
+            misori::random_grain(&g, &mut rng),
             &mut g, &mut hist, &syms, |x| lognorm.pdf(x), &mut rng
         ) {
             // println!("iter {}, norm {}", i, dnorm);
@@ -71,7 +73,7 @@ fn main() {
     write_orientations_mtex_euler(&g, "orientations-euler.out");
 }
 
-fn main2() {
+fn main() {
     let bnds = parse_bnds("bnds-10k.stface");
     let num_vols = count_volumes_from_bnds(&bnds);
     let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -97,7 +99,9 @@ fn main2() {
     let mut rotator = ori_opt::Rotator::new(&grid);
     println!("starting texture index: {}", rotator.texture_index(&grid));
     for i in 0..10_000_000 {
-        if let ori_opt::OptResult::MoreOptimal(texidx) = rotator.rotate_random_grain_ori(
+        if let OptResult::MoreOptimal{ criterion: texidx, .. } = rotator.rotate(
+            RotationMode::Start,
+            misori::random_grain(&g, &mut rng),
             &mut g, &mut grid, &mut rng
         ) {
             // println!("iter {}, texture index {}", i, texidx);

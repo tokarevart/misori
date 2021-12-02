@@ -276,14 +276,9 @@ pub fn iterate_swaps(
 struct RotatorBackup {
     diff_norm: f64,
     grain_idx: NodeIndex, 
-    ori: GrainOrientation,
+    ori: Option<GrainOrientation>,
     angles: Vec<f64>,
     hist: Histogram,
-}
-
-pub enum OptResult {
-    MoreOptimal(f64),
-    SameOrLessOptimal(f64),
 }
 
 #[derive(Debug, Clone)]
@@ -313,13 +308,19 @@ impl Rotator {
         prev_hist
     }
 
-    pub fn rotate_grain_ori(
-        &mut self, grain_idx: NodeIndex, g: &mut PolyGraph, hist: &mut Histogram, 
+    pub fn rotate(
+        &mut self, mode: RotationMode, grain_idx: NodeIndex, g: &mut PolyGraph, hist: &mut Histogram, 
         syms: &Vec<UnitQuat>, f: impl Fn(f64) -> f64, rng: &mut impl Rng, 
     ) -> OptResult {
         
-        let prev_ori = g[grain_idx].orientation;
-        g[grain_idx].orientation = GrainOrientation::random(rng);
+        let prev_ori = if let RotationMode::Start = mode {
+            let prev_ori = g[grain_idx].orientation;
+            g[grain_idx].orientation = GrainOrientation::random(rng);
+            Some(prev_ori)
+        } else {
+            None
+        };
+        
         let prev_angles = update_grain_angles(g, grain_idx, syms);
         let prev_hist = Self::update_hist_with_grain_new_angles(hist, g, grain_idx, &prev_angles);
         let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
@@ -333,34 +334,21 @@ impl Rotator {
 
         let dnorm = diff_norm(hist, |x| f(x));
         if dnorm < prev_dnorm {
-            OptResult::MoreOptimal(dnorm)
+            OptResult::MoreOptimal{ criterion: dnorm, prev_ori: prev_ori }
         } else {
-            OptResult::SameOrLessOptimal(dnorm)
+            OptResult::SameOrLessOptimal{ criterion: dnorm, prev_ori: prev_ori }
         }
     }
 
-    pub fn rotate_random_grain_ori(
-        &mut self, g: &mut PolyGraph, hist: &mut Histogram, 
-        syms: &Vec<UnitQuat>, f: impl Fn(f64) -> f64, rng: &mut impl Rng,
-    ) -> OptResult {
-
-        let distr = RandUniform::new(0, g.node_count() as u32);
-        let grain_idx: NodeIndex = rng.sample(distr).into();
-        self.rotate_grain_ori(grain_idx, g, hist, syms, f, rng)
-    }
-
     pub fn undo(&mut self, g: &mut PolyGraph, hist: &mut Histogram) {
-        let &RotatorBackup{ 
+        if let &RotatorBackup{ 
             grain_idx,
-            ori: prev_ori,
+            ori: Some(prev_ori),
             ..
-        } = self.backup.as_ref().unwrap();
+        } = self.backup.as_ref().unwrap() {
+            g[grain_idx].orientation = prev_ori;
+        }
 
-        g[grain_idx].orientation = prev_ori;
-        self.finish_undo(g, hist)
-    }
-
-    pub fn finish_undo(&mut self, g: &mut PolyGraph, hist: &mut Histogram) {
         let RotatorBackup{ 
             diff_norm: prev_diff_norm,
             grain_idx,

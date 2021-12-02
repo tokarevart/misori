@@ -18,6 +18,29 @@ pub mod ori_opt;
 #[cfg(test)]
 mod tests;
 
+pub fn random_grain(g: &PolyGraph, rng: &mut impl Rng) -> NodeIndex {
+    let distr = RandUniform::new(0, g.node_count() as u32);
+    rng.sample(distr).into()
+}
+
+pub enum RotationMode {
+    Start,
+    Continue{
+        prev_ori: GrainOrientation
+    }
+}
+
+pub enum OptResult {
+    MoreOptimal{
+        criterion: f64,
+        prev_ori: Option<GrainOrientation>,
+    },
+    SameOrLessOptimal{
+        criterion: f64,
+        prev_ori: Option<GrainOrientation>,
+    },
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct GrainOrientation {
     pub quat: UnitQuat, 
