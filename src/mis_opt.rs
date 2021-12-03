@@ -262,8 +262,6 @@ impl<ObjF: Fn(f64) -> f64> Swapper<ObjF> {
         prev_hist
     }
 
-
-
     fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
         let gn1_ori = g[n1].orientation;
         g[n1].orientation = g[n2].orientation;
