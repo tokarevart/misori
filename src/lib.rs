@@ -23,11 +23,16 @@ pub fn random_grain(g: &PolyGraph, rng: &mut impl Rng) -> NodeIndex {
     rng.sample(distr).into()
 }
 
-pub fn normalize_grain_volumes(g: &mut PolyGraph) {
-    let inv_vol = 1.0 / g.node_weights().map(|x| x.volume).sum::<f64>();
-    for Grain{ volume, .. } in g.node_weights_mut() {
-        *volume *= inv_vol;
-    }
+pub fn random_grains2(g: &PolyGraph, rng: &mut impl Rng) -> (NodeIndex, NodeIndex) {
+    let distr = RandUniform::new(0, g.node_count() as u32);
+    let grain1_idx: NodeIndex = rng.sample(distr).into();
+    let grain2_idx: NodeIndex = loop {
+        let n: NodeIndex = rng.sample(distr).into();
+        if n != grain1_idx {
+            break n;
+        }
+    };
+    (grain1_idx, grain2_idx)
 }
 
 pub enum RotationMode {
@@ -37,7 +42,7 @@ pub enum RotationMode {
     }
 }
 
-pub enum OptResult {
+pub enum RotationOptResult {
     MoreOptimal{
         criterion: f64,
         prev_ori: Option<GrainOrientation>,
@@ -46,6 +51,11 @@ pub enum OptResult {
         criterion: f64,
         prev_ori: Option<GrainOrientation>,
     },
+}
+
+pub enum SwapOptResult {
+    MoreOptimal(f64),
+    SameOrLessOptimal(f64),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -152,29 +162,44 @@ pub fn parse_graph(bnds_path: &str, volumes_path: &str) -> PolyGraph {
 
 pub fn write_orientations_quat(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
+    let total_vol: f64 = g.node_weights().map(|w| w.volume).sum();
+    let inv_avg_vol = g.node_count() as f64 / total_vol;
     for w in g.node_weights() {
         let q = &w.orientation.quat;
-        writeln!(&mut file, "{} {} {} {}", q.w, q.i, q.j, q.k).unwrap();
+        writeln!(&mut file, "{} {} {} {} {}", 
+            q.w, q.i, q.j, q.k, w.volume * inv_avg_vol
+        ).unwrap();
     }
 }
 
 pub fn write_orientations_mtex_euler(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
+    let total_vol: f64 = g.node_weights().map(|w| w.volume).sum();
+    let inv_avg_vol = g.node_count() as f64 / total_vol;
     for w in g.node_weights() {
         // inversed quaternion is used because 
         // MTEX defines orientations in a slightly different way 
         // than they have been defined by Bunge.
         // see more in the MTEX article 'MTEX vs. Bunge Convention'
         let angs = EulerAngles::from(w.orientation.quat.inverse());
-        writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
+        writeln!(&mut file, "{} {} {} {}", 
+            angs.alpha, angs.cos_beta.acos(), angs.gamma, w.volume * inv_avg_vol
+        ).unwrap();
     }
 }
 
-pub fn write_random_orientations_mtex_euler(num_oris: usize, path: &str, rng: &mut impl Rng) {
+pub fn write_random_orientations_mtex_euler(
+    g: &PolyGraph, path: &str, rng: &mut impl Rng
+) {
     let mut file = File::create(path).unwrap();
-    for q in (0..num_oris).map(|_| UnitQuat::from(EulerAngles::random(rng))) {
+    let total_vol: f64 = g.node_weights().map(|w| w.volume).sum();
+    let inv_avg_vol = g.node_count() as f64 / total_vol;
+    for w in g.node_weights() {
+        let q = UnitQuat::from(EulerAngles::random(rng));
         let angs = EulerAngles::from(q.inverse());
-        writeln!(&mut file, "{} {} {}", angs.alpha, angs.cos_beta.acos(), angs.gamma).unwrap();
+        writeln!(&mut file, "{} {} {} {}", 
+            angs.alpha, angs.cos_beta.acos(), angs.gamma, w.volume * inv_avg_vol
+        ).unwrap();
     }
 }
 

@@ -1,5 +1,12 @@
 use crate::*;
 
+pub fn normalize_grain_boundary_area(g: &mut PolyGraph) {
+    let inv_area = 1.0 / g.edge_weights().map(|x| x.area).sum::<f64>();
+    for AngleArea{ area, .. } in g.edge_weights_mut() {
+        *area *= inv_area;
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Histogram {
     pub beg: f64,
@@ -39,7 +46,7 @@ impl Histogram {
     }
 
     pub fn area(&self) -> f64 {
-        self.total_height() * self.bar_len
+        self.total_height()
     }
 
     pub fn idx(&self, angle: f64) -> usize {
@@ -75,12 +82,12 @@ impl Histogram {
         hist
     }
 
-    pub fn normalize_grain_boundary_area(&self, g: &mut PolyGraph) {
-        let inv_area = 1.0 / (g.edge_weights().map(|x| x.area).sum::<f64>() * self.bar_len);
-        for AngleArea{ area, .. } in g.edge_weights_mut() {
-            *area *= inv_area;
-        }
-    }
+    // pub fn normalize_grain_boundary_area(&self, g: &mut PolyGraph) {
+    //     let inv_area = 1.0 / (g.edge_weights().map(|x| x.area).sum::<f64>() * self.bar_len);
+    //     for AngleArea{ area, .. } in g.edge_weights_mut() {
+    //         *area *= inv_area;
+    //     }
+    // }
 
     fn update_with_edge_new_angle(&mut self, new_aa: AngleArea, prev_angle: f64) {
         let hpos = self.idx(new_aa.angle);
@@ -91,38 +98,12 @@ impl Histogram {
         }
     }
 
-    pub fn update_with_2grains_new_angles(
-        &mut self, g: &PolyGraph, 
-        n1: NodeIndex, n2: NodeIndex, 
-        prev_angles1: &Vec<f64>, prev_angles2: &Vec<f64>,
-    ) -> Histogram {
-
-        let prev_hist = self.clone();
-        for (e, &pa) in g.edges(n1).zip(prev_angles1) {
-            self.update_with_edge_new_angle(*e.weight(), pa);
-        }
-        for (e, &pa) in g.edges(n2).zip(prev_angles2) {
-            // when using petgraph v0.6.0 source is always n2 even when grapth is undirected
-            if e.target() == n1 {
-                continue;
-            }
-            // more implementation stable version, doesn't require source to be always n2
-            // if e.source() == n2 && e.target() == n1 ||
-            //    e.source() == n1 && e.target() == n2 {
-            //     continue;
-            // }
-            self.update_with_edge_new_angle(*e.weight(), pa);
-        }
-
-        prev_hist
-    }
-
     pub fn pairs(&self) -> impl Iterator<Item=(f64, f64)> {
-        let d = self.bar_len;
-        let first = self.beg + d * 0.5;
+        let bl = self.bar_len;
+        let first = self.beg + bl * 0.5;
         self.heights.clone().into_iter()
             .enumerate()
-            .map(move |(i, h)| (first + i as f64 * d, h))
+            .map(move |(i, h)| (first + i as f64 * bl, h / bl))
     }
 }
 
@@ -209,12 +190,12 @@ pub fn max_gap(sorted_pairs: &Vec<AngleArea>) -> f64 {
 }
 
 pub fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
-    hist.pairs()
+    (hist.pairs()
         .map(|(a, d)| {
             let fa = f(a);
             ((fa - d) / (fa + d)).powi(2)
         })
-        .sum::<f64>().sqrt()
+        .sum::<f64>() / hist.bars() as f64).sqrt()
 
         // .map(|(a, d)| {
         //     let fa = f(a);
@@ -232,49 +213,115 @@ pub fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
         // .unwrap()
 }
 
-pub fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
-    let gn1_ori = g[n1].orientation;
-    g[n1].orientation = g[n2].orientation;
-    g[n2].orientation = gn1_ori;
+#[derive(Debug, Clone)]
+struct SwapperBackup {
+    dnorm: f64,
+    grain1_idx: NodeIndex, 
+    grain2_idx: NodeIndex,
+    angles1: Vec<f64>,
+    angles2: Vec<f64>,
+    hist: Histogram,
 }
 
-pub fn iterate_swaps(
-    g: &mut PolyGraph, hist: &mut Histogram, syms: &Vec<UnitQuat>,
-    rng: &mut impl Rng, f: impl Fn(f64) -> f64
-) -> Option<f64> {
+#[derive(Debug, Clone)]
+pub struct Swapper<ObjF: Fn(f64) -> f64> {
+    backup: Option<SwapperBackup>,
+    pub obj_func: ObjF,
+    pub dnorm: f64,
+}
 
-    let distr = RandUniform::new(0, g.node_count() as u32);
-    let n1: NodeIndex = rng.sample(distr).into();
-    let n2: NodeIndex = loop {
-        let n: NodeIndex = rng.sample(distr).into();
-        if n != n1 {
-            break n;
+impl<ObjF: Fn(f64) -> f64> Swapper<ObjF> {
+    pub fn new(hist: &Histogram, obj_func: ObjF) -> Self {
+        let dnorm = diff_norm(hist, |x| obj_func(x));
+        Self{ backup: None, obj_func, dnorm }
+    }
+
+    fn update_hist_with_2grains_new_angles(
+        hist: &mut Histogram, g: &PolyGraph, 
+        grain1_idx: NodeIndex, grain2_idx: NodeIndex, 
+        prev_angles1: &Vec<f64>, prev_angles2: &Vec<f64>,
+    ) -> Histogram {
+
+        let prev_hist = hist.clone();
+        for (e, &pa) in g.edges(grain1_idx).zip(prev_angles1) {
+            hist.update_with_edge_new_angle(*e.weight(), pa);
         }
-    };
-    
-    swap_ori(g, n1, n2);
-    let prev_angles1 = update_grain_angles(g, n1, syms);
-    let prev_angles2 = update_grain_angles(g, n2, syms);
-    let prev_hist = hist.update_with_2grains_new_angles(
-        g, n1, n2, &prev_angles1, &prev_angles2
-    );
+        for (e, &pa) in g.edges(grain2_idx).zip(prev_angles2) {
+            // in petgraph v0.6.0 source is always grain2_idx even when graph is undirected
+            if e.target() == grain1_idx {
+                continue;
+            }
+            // more implementation stable version, doesn't require source to always be grain2_idx
+            // if e.source() == grain2_idx && e.target() == grain1_idx ||
+            //    e.source() == grain1_idx && e.target() == grain2_idx {
+            //     continue;
+            // }
+            hist.update_with_edge_new_angle(*e.weight(), pa);
+        }
 
-    let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
-    let dnorm = diff_norm(hist, f);
-    if dnorm < prev_dnorm {
-        Some(dnorm)
-    } else {
+        prev_hist
+    }
+
+
+
+    fn swap_ori(g: &mut PolyGraph, n1: NodeIndex, n2: NodeIndex) {
+        let gn1_ori = g[n1].orientation;
+        g[n1].orientation = g[n2].orientation;
+        g[n2].orientation = gn1_ori;
+    }
+
+    pub fn swap(
+        &mut self, grains: (NodeIndex, NodeIndex), g: &mut PolyGraph, 
+        hist: &mut Histogram, syms: &Vec<UnitQuat>
+    ) -> SwapOptResult {
+    
+        let (grain1_idx, grain2_idx) = grains;        
+        Self::swap_ori(g, grain1_idx, grain2_idx);
+        let prev_angles1 = update_grain_angles(g, grain1_idx, syms);
+        let prev_angles2 = update_grain_angles(g, grain2_idx, syms);
+        let prev_hist = Self::update_hist_with_2grains_new_angles(
+            hist, g, grain1_idx, grain2_idx, &prev_angles1, &prev_angles2
+        );
+    
+        let prev_dnorm = diff_norm(&prev_hist, |x| (self.obj_func)(x));
+        self.backup = Some(SwapperBackup{ 
+            dnorm: prev_dnorm,
+            grain1_idx, 
+            grain2_idx,
+            angles1: prev_angles1,
+            angles2: prev_angles2,
+            hist: prev_hist,
+        });
+
+        let dnorm = diff_norm(hist, |x| (self.obj_func)(x));
+        if dnorm < prev_dnorm {
+            SwapOptResult::MoreOptimal(dnorm)
+        } else {
+            SwapOptResult::SameOrLessOptimal(dnorm)
+        }
+    }
+
+    pub fn undo(&mut self, g: &mut PolyGraph, hist: &mut Histogram) {
+        let SwapperBackup{ 
+            dnorm: prev_dnorm,
+            grain1_idx, 
+            grain2_idx,
+            angles1: prev_angles1,
+            angles2: prev_angles2,
+            hist: prev_hist,
+        } = self.backup.take().unwrap();
+
         *hist = prev_hist;
-        swap_ori(g, n1, n2);
-        restore_grain_angles(g, n1, prev_angles1);
-        restore_grain_angles(g, n2, prev_angles2);
-        None
+        Self::swap_ori(g, grain1_idx, grain2_idx);
+        restore_grain_angles(g, grain1_idx, prev_angles1);
+        restore_grain_angles(g, grain2_idx, prev_angles2);
+        self.dnorm = prev_dnorm;
     }
 }
 
 #[derive(Debug, Clone)]
 struct RotatorBackup {
-    diff_norm: f64,
+    dnorm: f64,
     grain_idx: NodeIndex, 
     ori: Option<GrainOrientation>,
     angles: Vec<f64>,
@@ -284,16 +331,12 @@ struct RotatorBackup {
 #[derive(Debug, Clone)]
 pub struct Rotator {
     backup: Option<RotatorBackup>,
-    diff_norm: f64,
+    pub dnorm: f64,
 }
 
 impl Rotator {
     pub fn new() -> Self {
-        Self{ backup: None, diff_norm: f64::MAX }
-    }
-
-    pub fn diff_norm(&self) -> f64 {
-        self.diff_norm
+        Self{ backup: None, dnorm: f64::MAX }
     }
 
     fn update_hist_with_grain_new_angles(
@@ -311,7 +354,7 @@ impl Rotator {
     pub fn rotate(
         &mut self, mode: RotationMode, grain_idx: NodeIndex, g: &mut PolyGraph, hist: &mut Histogram, 
         syms: &Vec<UnitQuat>, f: impl Fn(f64) -> f64, rng: &mut impl Rng, 
-    ) -> OptResult {
+    ) -> RotationOptResult {
         
         let prev_ori = if let RotationMode::Start = mode {
             let prev_ori = g[grain_idx].orientation;
@@ -325,7 +368,7 @@ impl Rotator {
         let prev_hist = Self::update_hist_with_grain_new_angles(hist, g, grain_idx, &prev_angles);
         let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
         self.backup = Some(RotatorBackup{
-            diff_norm: prev_dnorm,
+            dnorm: prev_dnorm,
             grain_idx,
             ori: prev_ori,
             angles: prev_angles,
@@ -333,10 +376,11 @@ impl Rotator {
         });
 
         let dnorm = diff_norm(hist, |x| f(x));
+        use RotationOptResult::*;
         if dnorm < prev_dnorm {
-            OptResult::MoreOptimal{ criterion: dnorm, prev_ori }
+            MoreOptimal{ criterion: dnorm, prev_ori }
         } else {
-            OptResult::SameOrLessOptimal{ criterion: dnorm, prev_ori }
+            SameOrLessOptimal{ criterion: dnorm, prev_ori }
         }
     }
 
@@ -350,7 +394,7 @@ impl Rotator {
         }
 
         let RotatorBackup{ 
-            diff_norm: prev_diff_norm,
+            dnorm: prev_dnorm,
             grain_idx,
             angles: prev_angles,
             hist: prev_hist,
@@ -359,6 +403,6 @@ impl Rotator {
 
         *hist = prev_hist;
         restore_grain_angles(g, grain_idx, prev_angles);
-        self.diff_norm = prev_diff_norm;
+        self.dnorm = prev_dnorm;
     }
 }
