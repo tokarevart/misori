@@ -195,7 +195,8 @@ pub fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
             let fa = f(a);
             ((fa - d) / (fa + d)).powi(2)
         })
-        .sum::<f64>() / hist.bars() as f64).sqrt()
+        .sum::<f64>() / hist.bars() as f64
+    ).sqrt()
 
         // .map(|(a, d)| {
         //     let fa = f(a);
@@ -213,6 +214,12 @@ pub fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
         // .unwrap()
 }
 
+type ObjFn<'a> = Box<dyn Fn(&Histogram) -> f64 + 'a>;
+
+pub fn distribution_obj_fn<'a>(distr: &'a impl Fn(f64) -> f64) -> ObjFn<'a> {
+    Box::new(|h: &Histogram| diff_norm(h, |x| distr(x)))
+}
+
 #[derive(Debug, Clone)]
 struct SwapperBackup {
     dnorm: f64,
@@ -223,17 +230,21 @@ struct SwapperBackup {
     hist: Histogram,
 }
 
-#[derive(Debug, Clone)]
-pub struct Swapper<ObjF: Fn(f64) -> f64> {
+pub struct Swapper<'a> {
     backup: Option<SwapperBackup>,
-    pub obj_func: ObjF,
+    pub obj_fn: ObjFn<'a>,
     pub dnorm: f64,
 }
 
-impl<ObjF: Fn(f64) -> f64> Swapper<ObjF> {
-    pub fn new(hist: &Histogram, obj_func: ObjF) -> Self {
-        let dnorm = diff_norm(hist, |x| obj_func(x));
-        Self{ backup: None, obj_func, dnorm }
+impl<'a> Swapper<'a> {
+    pub fn new_with_distr(hist: &Histogram, distr: &'a impl Fn(f64) -> f64) -> Self {
+        let obj_fn = distribution_obj_fn(distr);
+        Self::new_with_obj_fn(hist, obj_fn)
+    }
+
+    pub fn new_with_obj_fn(hist: &Histogram, obj_fn: ObjFn<'a>) -> Self {
+        let dnorm = obj_fn(hist);
+        Self{ backup: None, obj_fn, dnorm }
     }
 
     fn update_hist_with_2grains_new_angles(
@@ -281,7 +292,7 @@ impl<ObjF: Fn(f64) -> f64> Swapper<ObjF> {
             hist, g, grain1_idx, grain2_idx, &prev_angles1, &prev_angles2
         );
     
-        let prev_dnorm = diff_norm(&prev_hist, |x| (self.obj_func)(x));
+        let prev_dnorm = (self.obj_fn)(&prev_hist);
         self.backup = Some(SwapperBackup{ 
             dnorm: prev_dnorm,
             grain1_idx, 
@@ -291,7 +302,7 @@ impl<ObjF: Fn(f64) -> f64> Swapper<ObjF> {
             hist: prev_hist,
         });
 
-        let dnorm = diff_norm(hist, |x| (self.obj_func)(x));
+        let dnorm = (self.obj_fn)(hist);
         if dnorm < prev_dnorm {
             SwapOptResult::MoreOptimal(dnorm)
         } else {

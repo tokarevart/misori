@@ -1,3 +1,4 @@
+use misori::mis_opt::Histogram;
 use rand_pcg::Pcg64;
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
@@ -69,7 +70,8 @@ fn main1() {
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
     
     let now = Instant::now();
-    let mut swapper = mis_opt::Swapper::new(&hist, |x| lognorm.pdf(x));
+    let distrfn = |x| lognorm.pdf(x);
+    let mut swapper = mis_opt::Swapper::new_with_distr(&hist, &distrfn);
     for i in 0..1_000_000 {
         if let SwapOptResult::MoreOptimal(dnorm) = swapper.swap(
             misori::random_grains2(&g, &mut rng),
@@ -203,7 +205,7 @@ fn main3() {
     // write_random_orientations_mtex_euler(&g, "orientations-euler.out", &mut rng);
 }
 
-fn main() {
+fn main4() {
     // let bnds = parse_bnds("bnds-10k.stface");
     // let num_vols = count_volumes_from_bnds(&bnds);
     // let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -292,4 +294,132 @@ fn main() {
     }
     write_orientations_mtex_euler(&g, "orientations-euler.out");
     // write_random_orientations_mtex_euler(&g, "orientations-euler.out", &mut rng);
+}
+
+
+//
+
+fn main() {
+    let bnds = parse_bnds("cubes.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+
+    let mut rng = Pcg64::seed_from_u64(0);
+    set_random_orientations(&mut g, &mut rng);
+    // write_orientations_mtex_euler(&g, "orientations-euler.out");
+
+    let segms = 17;
+    let mut grid = fnd::FundGrid::new(segms);
+    ori_opt::normalize_grain_volumes(&mut g);
+    grid.add_from_iter(g.node_weights());
+    
+    let now = Instant::now();
+    let mut rotator = ori_opt::Rotator::new(&grid);
+    println!("starting dnorm: {}", rotator.quad_dnorm.sqrt().sqrt());
+    for i in 0..10_000_000 {
+        if let RotationOptResult::MoreOptimal{ criterion: dnorm, .. } = rotator.rotate(
+            RotationMode::Start,
+            misori::random_grain(&g, &mut rng),
+            &mut g, &mut grid, &mut rng
+        ) {
+            // println!("iter {}, dnorm {}", i, dnorm);
+        } else {
+            rotator.undo(&mut g, &mut grid);
+        }
+    }
+    println!(
+        "rotations alg time: {} s, dnorm {}", 
+        now.elapsed().as_secs_f64(), rotator.quad_dnorm.sqrt().sqrt()
+    );
+
+    write_orientations_mtex_euler(&g, "orientations-euler.out");
+    // return;
+
+    let syms = cube_rotational_symmetry();
+    mis_opt::update_angles(&mut g, &syms);
+
+    let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
+    let mut hist = mis_opt::Histogram::new(hist_beg, hist_end, 50);
+    mis_opt::normalize_grain_boundary_area(&mut g);
+    let aa = mis_opt::angle_area_vec(&g);
+    hist.add_from_slice(&aa);
+
+    let mut file = File::create("starting-hist.txt").unwrap();
+    for (angle, density) in hist.pairs() {
+        writeln!(&mut file, "{}\t{}", angle.to_degrees(), density.to_radians()).unwrap();
+    }
+    return;
+
+    let uni = StatUniform::new(hist_beg, hist_end).unwrap();
+    let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
+    
+    let now = Instant::now();
+    // let distrfn = |x| lognorm.pdf(x);
+    // let objfn = Box::new(|h: &Histogram| {
+    //     (h.pairs()
+    //         .map(|(a, d)| a * a * d * d)
+    //         .sum::<f64>() / h.bars() as f64
+    //     ).sqrt()
+    // });
+    let negsumenfn = Box::new(|h: &Histogram| {
+        let max_a = 15.0f64.to_radians();
+        let max_e = max_a * (0.5 - max_a.ln());
+        -h.pairs()
+            .map(|(a, d)| if a < max_a { a * (0.5 - a.ln()) } else { max_e } * d)
+            .sum::<f64>() / h.bars() as f64
+    });
+    let sumenfn = Box::new(|h: &Histogram| {
+        let max_a = 15.0f64.to_radians();
+        let max_e = max_a * (0.5 - max_a.ln());
+        h.pairs()
+            .map(|(a, d)| if a < max_a { a * (0.5 - a.ln()) } else { max_e } * d)
+            .sum::<f64>() / h.bars() as f64
+    });
+    let mut swapper = mis_opt::Swapper::new_with_obj_fn(&hist, negsumenfn.clone());
+    println!("starting energy: {}", sumenfn(&hist));
+    let mut energy = Vec::new();
+    let energy_istep = 100_000;
+    let mut sucfail = Vec::new();
+    let sf_chunksize = 100_000;
+    let mut sf = (0, 0);
+    let maximization_until = 20_000_000;
+    for i in 0..100_000_000 {
+        if (i + 1) % sf_chunksize == 0 {
+            sucfail.push(sf.0 as f64 / sf.1 as f64);
+            sf = (0, 0);
+        }
+        if i == maximization_until {
+            swapper = mis_opt::Swapper::new_with_obj_fn(&hist, sumenfn.clone());
+        }
+        if let SwapOptResult::MoreOptimal(en) = swapper.swap(
+            misori::random_grains2(&g, &mut rng),
+            &mut g, &mut hist, &syms
+        ) {
+            // println!("iter {}, norm {}", i, en);
+            if i % energy_istep == 0 { energy.push(sumenfn(&hist)); }
+            sf.0 += 1;
+        } else {
+            if i % energy_istep == 0 { energy.push(sumenfn(&hist)); }
+            sf.1 += 1;
+            swapper.undo(&mut g, &mut hist);
+        }
+    }
+    println!(
+        "swaps alg time: {}, energy {}", 
+        now.elapsed().as_secs_f64(), sumenfn(&hist)
+    );
+    let mut energy_file = File::create("energy.txt").unwrap();
+    for (i, &e) in energy.iter().enumerate() {
+        writeln!(&mut energy_file, "{}\t{}", i * energy_istep, e).unwrap();
+    }
+    let mut sucfail_file = File::create("sucfail.txt").unwrap();
+    for (i, &sf) in sucfail.iter().enumerate() {
+        writeln!(&mut sucfail_file, "{}\t{}", i * sf_chunksize, sf).unwrap();
+    }
+
+    let mut file = File::create("hist.txt").unwrap();
+    for (angle, density) in hist.pairs() {
+        writeln!(&mut file, "{}\t{}", angle.to_degrees(), density.to_radians()).unwrap();
+    }
 }
