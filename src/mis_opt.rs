@@ -337,15 +337,21 @@ struct RotatorBackup {
     hist: Histogram,
 }
 
-#[derive(Debug, Clone)]
-pub struct Rotator {
+pub struct Rotator<'a> {
     backup: Option<RotatorBackup>,
+    pub obj_fn: ObjFn<'a>,
     pub dnorm: f64,
 }
 
-impl Rotator {
-    pub fn new() -> Self {
-        Self{ backup: None, dnorm: f64::MAX }
+impl<'a> Rotator<'a> {
+    pub fn new_with_distr(hist: &Histogram, distr: &'a impl Fn(f64) -> f64) -> Self {
+        let obj_fn = distribution_obj_fn(distr);
+        Self::new_with_obj_fn(hist, obj_fn)
+    }
+
+    pub fn new_with_obj_fn(hist: &Histogram, obj_fn: ObjFn<'a>) -> Self {
+        let dnorm = obj_fn(hist);
+        Self{ backup: None, obj_fn, dnorm }
     }
 
     fn update_hist_with_grain_new_angles(
@@ -361,8 +367,8 @@ impl Rotator {
     }
 
     pub fn rotate(
-        &mut self, mode: RotationMode, grain_idx: NodeIndex, g: &mut PolyGraph, hist: &mut Histogram, 
-        syms: &Vec<UnitQuat>, f: impl Fn(f64) -> f64, rng: &mut impl Rng, 
+        &mut self, mode: RotationMode, grain_idx: NodeIndex, g: &mut PolyGraph, 
+        hist: &mut Histogram, syms: &Vec<UnitQuat>, rng: &mut impl Rng, 
     ) -> RotationOptResult {
         
         let prev_ori = if let RotationMode::Start = mode {
@@ -375,7 +381,7 @@ impl Rotator {
         
         let prev_angles = update_grain_angles(g, grain_idx, syms);
         let prev_hist = Self::update_hist_with_grain_new_angles(hist, g, grain_idx, &prev_angles);
-        let prev_dnorm = diff_norm(&prev_hist, |x| f(x));
+        let prev_dnorm = (self.obj_fn)(&prev_hist);
         self.backup = Some(RotatorBackup{
             dnorm: prev_dnorm,
             grain_idx,
@@ -384,7 +390,7 @@ impl Rotator {
             hist: prev_hist,
         });
 
-        let dnorm = diff_norm(hist, |x| f(x));
+        let dnorm = (self.obj_fn)(hist);
         use RotationOptResult::*;
         if dnorm < prev_dnorm {
             MoreOptimal{ criterion: dnorm, prev_ori }

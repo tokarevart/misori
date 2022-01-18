@@ -133,12 +133,13 @@ fn main2() {
     // );
 
     let now = Instant::now();
-    let mut rotator = mis_opt::Rotator::new();
+    let distr = |x| lognorm.pdf(x);
+    let mut rotator = mis_opt::Rotator::new_with_distr(&hist,  &distr);
     for i in 0..3_000_000 {
         if let RotationOptResult::MoreOptimal{ criterion: dnorm, .. } = rotator.rotate(
             RotationMode::Start,
             misori::random_grain(&g, &mut rng),
-            &mut g, &mut hist, &syms, |x| lognorm.pdf(x), &mut rng
+            &mut g, &mut hist, &syms, &mut rng
         ) {
             // println!("iter {}, norm {}", i, dnorm);
         } else {
@@ -206,7 +207,7 @@ fn main3() {
     // write_random_orientations_mtex_euler(&g, "orientations-euler.out", &mut rng);
 }
 
-fn main4() {
+fn main() {
     // let bnds = parse_bnds("bnds-10k.stface");
     // let num_vols = count_volumes_from_bnds(&bnds);
     // let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -240,7 +241,8 @@ fn main4() {
     
     let now = Instant::now();
     let mut rotator_ori = ori_opt::Rotator::new(&grid);
-    let mut rotator_mis = mis_opt::Rotator::new();
+    let distr = |x| lognorm.pdf(x);
+    let mut rotator_mis = mis_opt::Rotator::new_with_distr(&hist, &distr);
 
     let quad_sum = |a: f64, b: f64| a.powi(8) + 60.0 * b.powi(8);
 
@@ -264,7 +266,7 @@ fn main4() {
         };
         let dnorm_mis = match rotator_mis.rotate(
             RotationMode::Continue{ prev_ori },
-            grain_idx, &mut g, &mut hist, &syms, |x| lognorm.pdf(x), &mut rng
+            grain_idx, &mut g, &mut hist, &syms, &mut rng
         ) {
             RotationOptResult::MoreOptimal{ criterion: dnorm, .. } => dnorm,
             RotationOptResult::SameOrLessOptimal{ criterion: dnorm, .. } => dnorm,
@@ -300,7 +302,7 @@ fn main4() {
 
 //
 
-fn main() {
+fn main5() {
     let bnds = parse_bnds("cubes.stface");
     let num_vols = count_volumes_from_bnds(&bnds);
 
