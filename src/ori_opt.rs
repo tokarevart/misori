@@ -13,22 +13,26 @@ pub fn texture_index(grid: &fnd::FundGrid) -> f64 {
         .sum::<f64>() / grid.dvol
 }
 
-pub fn diff_norm(grid: &fnd::FundGrid) -> f64 {
-    quad_diff_norm(grid).sqrt().sqrt()
+fn squared_error_at(d: f64, grid: &fnd::FundGrid) -> f64 {
+    let d = d / grid.dvol;
+    let e = 1.0 - d;
+    e * e
 }
 
-pub fn quad_diff_norm(grid: &fnd::FundGrid) -> f64 {
+pub fn squared_error(grid: &fnd::FundGrid) -> f64 {
     grid.cells.iter().flatten().flatten()
-        .map(|&d| {
-            let d = d / grid.dvol;
-            ((1.0 - d) / (1.0 + d)).powi(4)
-        })
+        .map(|&d| squared_error_at(d, grid))
+        .sum::<f64>()
+}
+
+pub fn mean_squared_error(grid: &fnd::FundGrid) -> f64 {
+    grid.cells.iter().flatten().flatten()
+        .map(|&d| squared_error_at(d, grid))
         .sum::<f64>() * grid.dvol
 }
 
-pub fn quad_diff_norm_at(d: f64, grid: &fnd::FundGrid) -> f64 {
-    let d = d / grid.dvol;
-    ((1.0 - d) / (1.0 + d)).powi(4) * grid.dvol
+fn mean_squared_error_at(d: f64, grid: &fnd::FundGrid) -> f64 {
+    squared_error_at(d, grid) * grid.dvol
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,7 +43,7 @@ struct CellBackup {
 
 #[derive(Debug, Clone)]
 struct RotatorBackup {
-    quad_dnorm: f64,
+    mse: f64,
     grain_idx: NodeIndex, 
     ori: Option<GrainOrientation>,
     prev_cell_bu: CellBackup,
@@ -49,12 +53,12 @@ struct RotatorBackup {
 #[derive(Debug, Clone)]
 pub struct Rotator {
     backup: Option<RotatorBackup>,
-    pub quad_dnorm: f64,
+    pub mse: f64,
 }
 
 impl Rotator {
     pub fn new(grid: &fnd::FundGrid) -> Self {
-        Self{ backup: None, quad_dnorm: quad_diff_norm(grid) }
+        Self{ backup: None, mse: mean_squared_error(grid) }
     }
 
     pub fn rotate(
@@ -63,7 +67,7 @@ impl Rotator {
     ) -> RotationOptResult {
         
         let vol = g[grain_idx].volume;
-        let prev_qdnorm = self.quad_dnorm;
+        let prev_mse = self.mse;
 
         let (prev_ori, actual_prev_ori) = match mode {
             RotationMode::Start => {
@@ -91,26 +95,26 @@ impl Rotator {
         *grid.at_mut(cur_idxs) += vol;
         let cur_cell_bu = CellBackup{ idxs: cur_idxs, height: prev_h2 };
 
-        self.quad_dnorm -= 
-            quad_diff_norm_at(prev_h1, grid) 
-            + quad_diff_norm_at(prev_h2, grid);
-        self.quad_dnorm += 
-            quad_diff_norm_at(grid.at(prev_idxs), grid) 
-            + quad_diff_norm_at(grid.at(cur_idxs), grid);
+        self.mse -= 
+            mean_squared_error_at(prev_h1, grid) 
+            + mean_squared_error_at(prev_h2, grid);
+        self.mse += 
+            mean_squared_error_at(grid.at(prev_idxs), grid) 
+            + mean_squared_error_at(grid.at(cur_idxs), grid);
         
         self.backup = Some(RotatorBackup{ 
             grain_idx, 
-            quad_dnorm: prev_qdnorm,
+            mse: prev_mse,
             ori: prev_ori, 
             prev_cell_bu, 
             cur_cell_bu,
         });
 
         use RotationOptResult::*;
-        if self.quad_dnorm < prev_qdnorm {
-            MoreOptimal{ criterion: self.quad_dnorm.sqrt().sqrt(), prev_ori }
+        if self.mse < prev_mse {
+            MoreOptimal{ criterion: self.mse, prev_ori }
         } else {
-            SameOrLessOptimal{ criterion: self.quad_dnorm.sqrt().sqrt(), prev_ori }
+            SameOrLessOptimal{ criterion: self.mse, prev_ori }
         }
     }
 
@@ -126,7 +130,7 @@ impl Rotator {
         let RotatorBackup{
             prev_cell_bu, 
             cur_cell_bu, 
-            quad_dnorm,
+            mse,
             ..
         } = self.backup.take().unwrap();
 
@@ -134,6 +138,6 @@ impl Rotator {
         // the new orientation is in the same cell as the previous one
         *grid.at_mut(cur_cell_bu.idxs) = cur_cell_bu.height;
         *grid.at_mut(prev_cell_bu.idxs) = prev_cell_bu.height;
-        self.quad_dnorm = quad_dnorm;
+        self.mse = mse;
     }
 }

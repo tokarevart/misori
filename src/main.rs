@@ -11,18 +11,18 @@ use std::vec;
 use misori::*;
 
 fn main1() {
-    // let bnds = parse_bnds("bnds-10k.stface");
-    // let num_vols = count_volumes_from_bnds(&bnds);
-    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
-    let mut g = misori::parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    let bnds = parse_bnds("bnds-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    println!("nodes {}, edges {}", g.node_count(), g.edge_count());
+    // let mut g = misori::parse_graph("bnds-10k.stface", "vols-10k.stpoly");
 
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
     // write_orientations_mtex_euler(&g, "orientations-euler.out");
 
-    let segms = 17;
-    let mut grid = fnd::FundGrid::new(segms);
+    let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count());
+    println!("num cells: {}", grid.num_cells());
     ori_opt::normalize_grain_volumes(&mut g);
     grid.add_from_iter(g.node_weights());
 
@@ -37,25 +37,25 @@ fn main1() {
     
     let now = Instant::now();
     let mut rotator = ori_opt::Rotator::new(&grid);
-    println!("starting dnorm: {}", rotator.quad_dnorm.sqrt().sqrt());
+    println!("starting error: {}", rotator.mse);
     for i in 0..10_000_000 {
-        if let RotationOptResult::MoreOptimal{ criterion: dnorm, .. } = rotator.rotate(
+        if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
             RotationMode::Start,
             misori::random_grain(&g, &mut rng),
             &mut g, &mut grid, &mut rng
         ) {
-            // println!("iter {}, dnorm {}", i, dnorm);
+            // println!("iter {}, error {}", i, error);
         } else {
             rotator.undo(&mut g, &mut grid);
         }
     }
     println!(
-        "rotations alg time: {} s, dnorm {}", 
-        now.elapsed().as_secs_f64(), rotator.quad_dnorm.sqrt().sqrt()
+        "rotations alg time: {} s, error {}", 
+        now.elapsed().as_secs_f64(), rotator.mse
     );
 
     println!("min max ori density: {:?}", minmax_density(&grid));
-    write_orientations_mtex_euler(&g, "orientations-euler.out");
+    // write_orientations_mtex_euler(&g, "orientations-euler.out");
     // return;
 
     let syms = cube_rotational_symmetry();
@@ -74,18 +74,18 @@ fn main1() {
     let distrfn = |x| lognorm.pdf(x);
     let mut swapper = mis_opt::Swapper::new_with_distr(&hist, &distrfn);
     for i in 0..1_000_000 {
-        if let SwapOptResult::MoreOptimal(dnorm) = swapper.swap(
+        if let SwapOptResult::MoreOptimal(error) = swapper.swap(
             misori::random_grains2(&g, &mut rng),
             &mut g, &mut hist, &syms
         ) {
-            // println!("iter {}, norm {}", i, dnorm);
+            // println!("iter {}, norm {}", i, error);
         } else {
             swapper.undo(&mut g, &mut hist);
         }
     }
     println!(
         "swaps alg time: {}, norm {}", 
-        now.elapsed().as_secs_f64(), mis_opt::diff_norm(&mut hist, |x| lognorm.pdf(x))
+        now.elapsed().as_secs_f64(), mis_opt::mean_squared_error(&mut hist, |x| lognorm.pdf(x))
     );
 
     let mut file = File::create("hist.txt").unwrap();
@@ -97,11 +97,11 @@ fn main1() {
 }
 
 fn main2() {
-    // let bnds = parse_bnds("bnds-10k.stface");
-    // let num_vols = count_volumes_from_bnds(&bnds);
-    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    let bnds = parse_bnds("bnds-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
     // println!("nodes {}, edges {}", g.node_count(), g.edge_count());
-    let mut g = misori::parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    // let mut g = misori::parse_graph("bnds-10k.stface", "vols-10k.stpoly");
 
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
@@ -121,10 +121,10 @@ fn main2() {
     
     // let now = Instant::now();
     // for i in 0..1_000_000 {
-    //     if let Some(dnorm) = iterate_swaps(
+    //     if let Some(error) = iterate_swaps(
     //         &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
     //     ) {
-    //         // println!("iter {}, norm {}", i, dnorm);
+    //         // println!("iter {}, norm {}", i, error);
     //     }
     // }
     // println!(
@@ -136,19 +136,19 @@ fn main2() {
     let distr = |x| lognorm.pdf(x);
     let mut rotator = mis_opt::Rotator::new_with_distr(&hist,  &distr);
     for i in 0..3_000_000 {
-        if let RotationOptResult::MoreOptimal{ criterion: dnorm, .. } = rotator.rotate(
+        if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
             RotationMode::Start,
             misori::random_grain(&g, &mut rng),
             &mut g, &mut hist, &syms, &mut rng
         ) {
-            // println!("iter {}, norm {}", i, dnorm);
+            // println!("iter {}, norm {}", i, error);
         } else {
             rotator.undo(&mut g, &mut hist);
         }
     }
     println!(
-        "rotations alg time: {}, dnorm {}", 
-        now.elapsed().as_secs_f64(), mis_opt::diff_norm(&mut hist, |x| lognorm.pdf(x))
+        "rotations alg time: {}, error {}", 
+        now.elapsed().as_secs_f64(), mis_opt::mean_squared_error(&mut hist, |x| lognorm.pdf(x))
     );
 
     let mut file = File::create("hist.txt").unwrap();
@@ -156,20 +156,20 @@ fn main2() {
         writeln!(&mut file, "{}\t{}", angle.to_degrees(), density.to_radians()).unwrap();
     }
 
-    // write_orientations_mtex_euler(&g, "orientations-euler.out");
+    write_orientations_mtex_euler(&g, "orientations-euler.out");
 }
 
 fn main3() {
-    // let bnds = parse_bnds("bnds-10k.stface");
-    // let num_vols = count_volumes_from_bnds(&bnds);
-    // let mut g = build_graph(bnds, vec![1.0; num_vols]);
-    let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    let bnds = parse_bnds("bnds-10k.stface");
+    let num_vols = count_volumes_from_bnds(&bnds);
+    let mut g = build_graph(bnds, vec![1.0; num_vols]);
+    // let mut g = parse_graph("bnds-10k.stface", "vols-10k.stpoly");
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
 
-    let segms = 21;
-    let mut grid = fnd::FundGrid::new(segms);
+    let mut grid = fnd::FundGrid::with_target_num_cells(num_vols);
+    println!("num cells: {}", grid.num_cells());
     ori_opt::normalize_grain_volumes(&mut g);
     grid.add_from_iter(g.node_weights());
 
@@ -179,35 +179,50 @@ fn main3() {
         *g.cells.iter().flatten().flatten()
             .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap() / g.dvol
     );
-
+    // let max_density_idx = |g: &fnd::FundGrid| {
+    //     let i = g.cells.iter().flatten().flatten().enumerate()
+    //         .max_by(|&x, &y| x.1.partial_cmp(y.1).unwrap()).unwrap().0;
+    //     let d = i / (g.segms.1 * g.segms.2);
+    //     let ii = i - d * g.segms.1 * g.segms.2;
+    //     let l = ii / g.segms.2;
+    //     let o = ii - l * g.segms.2;
+    //     (d, l, o)
+    // };
+        
     println!("min max ori density: {:?}", minmax_density(&grid));
+    // println!("min max ori density idxs: {:?}", max_density_idx(&grid));
+    // dbg!(grid.at(max_density_idx(&grid)) / grid.dvol);
     
     let now = Instant::now();
     let mut rotator = ori_opt::Rotator::new(&grid);
-    println!("starting dnorm: {}", rotator.quad_dnorm.sqrt().sqrt());
+    println!("starting : {}", rotator.mse);
+    // dbg!(ori_opt::quad_diff_norm(&grid).sqrt());
     for i in 0..10_000_000 {
-        if let RotationOptResult::MoreOptimal{ criterion: dnorm, .. } = rotator.rotate(
+        if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
             RotationMode::Start,
             misori::random_grain(&g, &mut rng),
             &mut g, &mut grid, &mut rng
         ) {
-            // println!("iter {}, dnorm {}", i, dnorm);
+            // println!("iter {}, error {}", i, error);
         } else {
             rotator.undo(&mut g, &mut grid);
         }
     }
     println!(
-        "rotations alg time: {} s, dnorm {}", 
-        now.elapsed().as_secs_f64(), rotator.quad_dnorm.sqrt().sqrt()
+        "rotations alg time: {} s, error {}", 
+        now.elapsed().as_secs_f64(), rotator.mse
     );
+    // dbg!(ori_opt::quad_diff_norm(&grid).sqrt());
 
     println!("min max ori density: {:?}", minmax_density(&grid));
+    // println!("min max ori density idxs: {:?}", max_density_idx(&grid));
+    // dbg!(grid.at(max_density_idx(&grid)) / grid.dvol);
 
     write_orientations_mtex_euler(&g, "orientations-euler.out");
     // write_random_orientations_mtex_euler(&g, "orientations-euler.out", &mut rng);
 }
 
-fn main() {
+fn main4() {
     // let bnds = parse_bnds("bnds-10k.stface");
     // let num_vols = count_volumes_from_bnds(&bnds);
     // let mut g = build_graph(bnds, vec![1.0; num_vols]);
@@ -219,8 +234,8 @@ fn main() {
     let syms = cube_rotational_symmetry();
     mis_opt::update_angles(&mut g, &syms);
 
-    let segms = 17;
-    let mut grid = fnd::FundGrid::new(segms);
+    let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count() + 1000);
+    println!("num cells: {}", grid.num_cells());
     let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
     let mut hist = mis_opt::Histogram::new(hist_beg, hist_end, 30);
     ori_opt::normalize_grain_volumes(&mut g);
@@ -244,13 +259,13 @@ fn main() {
     let distr = |x| lognorm.pdf(x);
     let mut rotator_mis = mis_opt::Rotator::new_with_distr(&hist, &distr);
 
-    let quad_sum = |a: f64, b: f64| a.powi(8) + 60.0 * b.powi(8);
+    let loss_sum = |a: f64, b: f64| a * a + 100.0 * b * b;
 
-    let mut min_crit = quad_sum(
-        rotator_ori.quad_dnorm.sqrt().sqrt(),
-        rotator_mis.dnorm,
+    let mut min_crit = loss_sum(
+        rotator_ori.mse,
+        rotator_mis.error,
     );
-    for i in 0..10_000_000 {
+    for i in 0..1_000_000 {
         let grain_idx = misori::random_grain(&g, &mut rng);
 
         let (dnorm_ori, prev_ori) = match rotator_ori.rotate(
@@ -258,25 +273,25 @@ fn main() {
             grain_idx, &mut g, &mut grid, &mut rng
         ) {
             RotationOptResult::MoreOptimal{ 
-                criterion: dnorm, prev_ori 
-            } => (dnorm, prev_ori.unwrap()),
+                criterion: error, prev_ori 
+            } => (error, prev_ori.unwrap()),
             RotationOptResult::SameOrLessOptimal{
-                criterion: dnorm, prev_ori 
-            } => (dnorm, prev_ori.unwrap()),
+                criterion: error, prev_ori 
+            } => (error, prev_ori.unwrap()),
         };
         let dnorm_mis = match rotator_mis.rotate(
             RotationMode::Continue{ prev_ori },
             grain_idx, &mut g, &mut hist, &syms, &mut rng
         ) {
-            RotationOptResult::MoreOptimal{ criterion: dnorm, .. } => dnorm,
-            RotationOptResult::SameOrLessOptimal{ criterion: dnorm, .. } => dnorm,
+            RotationOptResult::MoreOptimal{ criterion: error, .. } => error,
+            RotationOptResult::SameOrLessOptimal{ criterion: error, .. } => error,
         };
 
-        let crit = quad_sum(dnorm_ori, dnorm_mis);
+        let crit = loss_sum(dnorm_ori, dnorm_mis);
         if crit < min_crit {
             min_crit = crit;
             // println!(
-            //     "iter {}, ori dnorm {}, mis dnorm {}", 
+            //     "iter {}, ori error {}, mis error {}", 
             //     i, dnorm_ori, dnorm_mis
             // );
         } else {
@@ -285,8 +300,8 @@ fn main() {
         }
     }
     println!(
-        "rotations alg time: {} s, ori dnorm {}, mis dnorm {}", 
-        now.elapsed().as_secs_f64(), rotator_ori.quad_dnorm.sqrt().sqrt(), rotator_mis.dnorm
+        "rotations alg time: {} s, ori error {}, mis error {}", 
+        now.elapsed().as_secs_f64(), rotator_ori.mse, rotator_mis.error
     );
 
     println!("min max ori density: {:?}", minmax_density(&grid));
@@ -318,27 +333,27 @@ fn main5() {
         set_random_orientations(&mut g, &mut rng);
         // write_orientations_mtex_euler(&g, "orientations-euler.out");
 
-        let segms = 17;
-        let mut grid = fnd::FundGrid::new(segms);
+        let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count());
+        println!("num cells: {}", grid.num_cells());
         ori_opt::normalize_grain_volumes(&mut g);
         grid.add_from_iter(g.node_weights());
         
         let now = Instant::now();
         let mut rotator = ori_opt::Rotator::new(&grid);
-        // println!("starting dnorm: {}", rotator.quad_dnorm.sqrt().sqrt());
+        // println!("starting error: {}", rotator.quad_dnorm.sqrt().sqrt());
         for i in 0..10_000_000 {
-            if let RotationOptResult::MoreOptimal{ criterion: dnorm, .. } = rotator.rotate(
+            if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
                 RotationMode::Start,
                 misori::random_grain(&g, &mut rng),
                 &mut g, &mut grid, &mut rng
             ) {
-                // println!("iter {}, dnorm {}", i, dnorm);
+                // println!("iter {}, error {}", i, error);
             } else {
                 rotator.undo(&mut g, &mut grid);
             }
         }
         // println!(
-        //     "rotations alg time: {} s, dnorm {}", 
+        //     "rotations alg time: {} s, error {}", 
         //     now.elapsed().as_secs_f64(), rotator.quad_dnorm.sqrt().sqrt()
         // );
 
@@ -379,7 +394,7 @@ fn main5() {
                 .map(|(a, d)| if a < max_a { a * (0.5 - a.ln()) } else { max_e } * d)
                 .sum::<f64>() / h.bars() as f64
         });
-        let mut swapper = mis_opt::Swapper::new_with_obj_fn(&hist, negsumenfn.clone());
+        let mut swapper = mis_opt::Swapper::new_with_loss_fn(&hist, negsumenfn.clone());
         // println!("starting energy: {}", sumenfn(&hist));
         let mut energy = Vec::new();
         let energy_istep = 10_000;
@@ -393,7 +408,7 @@ fn main5() {
                 sf = (0, 0);
             }
             if i == maximization_until {
-                swapper = mis_opt::Swapper::new_with_obj_fn(&hist, sumenfn.clone());
+                swapper = mis_opt::Swapper::new_with_loss_fn(&hist, sumenfn.clone());
             }
             if let SwapOptResult::MoreOptimal(en) = swapper.swap(
                 misori::random_grains2(&g, &mut rng),
@@ -482,4 +497,16 @@ fn main5() {
         let (a, d1, d2) = (hists[0][vec_i].0, mean - twostddev, mean + twostddev);
         writeln!(&mut file, "{}\t{}\t{}", a.to_degrees(), d1, d2).unwrap();
     }
+}
+
+//
+
+fn main() {
+    main4();
+
+    // write_cells_center_orientations_mtex_euler(10, "orientations-euler.out");
+    // write_cells_random_orientations_mtex_euler(10, "orientations-euler.out");
+    // write_cells_with_growing_disturbance_orientations_mtex_euler(20, "orientations-euler.out");
+    // write_diagonal_cells_center_orientations_mtex_euler(100, "orientations-euler.out");
+    // write_diagonal_cells_with_growing_disturbance_orientations_mtex_euler(100, "orientations-euler.out");
 }

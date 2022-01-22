@@ -188,16 +188,27 @@ pub type CellIdxs = (usize, usize, usize);
 #[derive(Debug, Clone)]
 pub struct FundGrid {
     pub cells: Vec3<f64>,
-    pub segms: usize,
+    pub segms: (usize, usize, usize),
     pub dvol: f64,
 }
 
 impl FundGrid {
-    pub fn new(each_angle_segms: usize) -> Self {
-        let segms = each_angle_segms;
-        let cells = vec![vec![vec![0.0; segms]; segms]; segms];
-        let dvol = 1.0 / segms.pow(3) as f64;
-        Self{ cells, segms, dvol }
+    pub fn new(delta_segms: usize, lambda_segms: usize, omega_segms: usize) -> Self {
+        let cells = vec![vec![vec![0.0; omega_segms]; lambda_segms]; delta_segms];
+        let dvol = 1.0 / (delta_segms * lambda_segms * omega_segms) as f64;
+        Self{ cells, segms: (delta_segms, lambda_segms, omega_segms), dvol }
+    }
+
+    pub fn with_target_num_cells(n: usize) -> Self {
+        let os = (n as f64 / (4.0 * PI * PI)).powf(1.0 / 3.0).round() as usize;
+        let ds = (os as f64 * 2.0 * PI).round() as usize;
+        // let ds = os;
+        let ls = ds;
+        Self::new(ds, ls, os)
+    }
+
+    pub fn num_cells(&self) -> usize {
+        self.segms.0 * self.segms.1 * self.segms.2
     }
 
     pub fn add(&mut self, g: &Grain) {
@@ -217,16 +228,26 @@ impl FundGrid {
         }
     }
 
-    pub fn idx(&self, angle: f64) -> usize {
-        (angle * self.segms as f64)
-            .clamp(0.5, self.segms as f64 - 0.5) as usize
+    pub fn delta_idx(&self, angle: f64) -> usize {
+        (angle * self.segms.0 as f64)
+            .clamp(0.5, self.segms.0 as f64 - 0.5) as usize
+    }
+    
+    pub fn lambda_idx(&self, angle: f64) -> usize {
+        (angle * self.segms.1 as f64)
+            .clamp(0.5, self.segms.1 as f64 - 0.5) as usize
+    }
+
+    pub fn omega_idx(&self, angle: f64) -> usize {
+        (angle * self.segms.2 as f64)
+            .clamp(0.5, self.segms.2 as f64 - 0.5) as usize
     }
 
     pub fn idxs(&self, angles: FundAngles) -> CellIdxs {
         (
-            self.idx(angles.delta), 
-            self.idx(angles.lambda), 
-            self.idx(angles.omega)
+            self.delta_idx(angles.delta), 
+            self.lambda_idx(angles.lambda), 
+            self.omega_idx(angles.omega)
         )
     }
 

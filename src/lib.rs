@@ -1,6 +1,8 @@
+use itertools::{Itertools, multizip};
 use nalgebra as na;
 use na::{Quaternion, UnitQuaternion, Vector3};
 use rand::distributions::Uniform as RandUniform;
+use std::cell::RefCell;
 use std::f64::consts::*;
 use std::fs::File;
 use std::io::Write;
@@ -8,6 +10,7 @@ use std::io::Write;
 pub use petgraph::graph::{EdgeIndex, NodeIndex, UnGraph};
 pub use petgraph::visit::EdgeRef;
 pub use rand::prelude::*;
+use rand_pcg::Pcg64;
 pub use fnd::FundAngles;
 
 pub type UnitQuat = UnitQuaternion<f64>;
@@ -172,22 +175,53 @@ pub fn write_orientations_quat(g: &PolyGraph, path: &str) {
     }
 }
 
+fn writeln_fund_angles_mtex_euler(angs: FundAngles, vol: f64, file: &mut File) {
+    // inversed quaternion is used because 
+    // MTEX defines orientations in a slightly different way 
+    // than they have been defined by Bunge.
+    // see more in the MTEX article 'MTEX vs. Bunge Convention'
+    let angs = EulerAngles::from(UnitQuat::from(angs).inverse());
+    writeln!(file, "{} {} {} {}", 
+        angs.alpha, angs.cos_beta.acos(), angs.gamma, vol
+    ).unwrap();
+}
+
+fn writeln_euler_angles_mtex_euler(angs: EulerAngles, vol: f64, file: &mut File) {
+    // inversed quaternion is used because 
+    // MTEX defines orientations in a slightly different way 
+    // than they have been defined by Bunge.
+    // see more in the MTEX article 'MTEX vs. Bunge Convention'
+    let angs = EulerAngles::from(UnitQuat::from(angs).inverse());
+    writeln!(file, "{} {} {} {}", 
+        angs.alpha, angs.cos_beta.acos(), angs.gamma, vol
+    ).unwrap();
+}
+
+fn writeln_quat_angles_mtex_euler(q: UnitQuat, vol: f64, file: &mut File) {
+    // inversed quaternion is used because 
+    // MTEX defines orientations in a slightly different way 
+    // than they have been defined by Bunge.
+    // see more in the MTEX article 'MTEX vs. Bunge Convention'
+    let angs = EulerAngles::from(q.inverse());
+    writeln!(file, "{} {} {} {}", 
+        angs.alpha, angs.cos_beta.acos(), angs.gamma, vol
+    ).unwrap();
+}
+
 pub fn write_orientations_mtex_euler(g: &PolyGraph, path: &str) {
     let mut file = File::create(path).unwrap();
     let total_vol: f64 = g.node_weights().map(|w| w.volume).sum();
     let inv_avg_vol = g.node_count() as f64 / total_vol;
     for w in g.node_weights() {
-        // inversed quaternion is used because 
-        // MTEX defines orientations in a slightly different way 
-        // than they have been defined by Bunge.
-        // see more in the MTEX article 'MTEX vs. Bunge Convention'
-        let angs = EulerAngles::from(w.orientation.quat.inverse());
-        writeln!(&mut file, "{} {} {} {}", 
-            angs.alpha, angs.cos_beta.acos(), angs.gamma, w.volume * inv_avg_vol
-        ).unwrap();
+        writeln_quat_angles_mtex_euler(
+            w.orientation.quat, 
+            w.volume * inv_avg_vol, 
+            &mut file
+        );
     }
 }
 
+// write as if grains of a certain polycrystal have random orientations
 pub fn write_random_orientations_mtex_euler(
     g: &PolyGraph, path: &str, rng: &mut impl Rng
 ) {
@@ -195,17 +229,129 @@ pub fn write_random_orientations_mtex_euler(
     let total_vol: f64 = g.node_weights().map(|w| w.volume).sum();
     let inv_avg_vol = g.node_count() as f64 / total_vol;
     for w in g.node_weights() {
-        let q = UnitQuat::from(EulerAngles::random(rng));
-        let angs = EulerAngles::from(q.inverse());
-        writeln!(&mut file, "{} {} {} {}", 
-            angs.alpha, angs.cos_beta.acos(), angs.gamma, w.volume * inv_avg_vol
-        ).unwrap();
+        writeln_euler_angles_mtex_euler(
+            EulerAngles::random(rng), 
+            w.volume * inv_avg_vol, 
+            &mut file
+        );
     }
 }
 
+pub fn write_cells_center_orientations_mtex_euler(discr: usize, path: &str) {
+    let (discr_d, discr_l, discr_o) = (
+        ((discr + discr) as f64 * PI) as usize, 
+        ((discr + discr) as f64 * PI) as usize, 
+        discr
+    );
+    let (dang_d, dang_l, dang_o) = (
+        1.0 / discr_d as f64, 
+        1.0 / discr_l as f64, 
+        1.0 / discr_o as f64
+    );
+
+    let mut file = File::create(path).unwrap();
+    // for v in (0..3)
+    //         .map(|_| (0..discr).map(|i| (i as f64 + 0.5) * dang))
+    //         .multi_cartesian_product() {
+    //     let fangs = FundAngles{ delta: v[0], lambda: v[1], omega: v[2] };
+    //     writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
+    // }
+    let rng = RefCell::new(Pcg64::seed_from_u64(0));
+    let threshold = 0.1;
+    for delta in (0..discr_d)
+        .map(|i| (i as f64 + 0.5) * dang_d)
+        // .filter(|&x| x < threshold)
+        // .take_while(|&x| x < threshold + dang_d)
+    {
+        for lambda in (0..discr_l)
+            .map(|i| (i as f64 + 0.5) * dang_l)
+            // .filter(|&x| x < threshold)
+            // .take_while(|&x| x < threshold + dang_l)
+        {
+            for omega in (0..discr_o)
+                .map(|i| (i as f64 + 0.5) * dang_o) 
+                // .map(|i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang_o) 
+                // .filter(|&x| x < threshold)
+                // .take_while(|&x| x < threshold + dang_o)
+            {
+                let fangs = FundAngles{ delta, lambda, omega };
+                writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
+                // let ea = EulerAngles{ alpha: delta * 2.0 * PI, cos_beta: lambda * 2.0 - 1.0, gamma: omega * 2.0 * PI };
+                // writeln_euler_angles_mtex_euler(ea, 1.0, &mut file);
+            }
+        }
+    }
+}
+
+pub fn write_cells_random_orientations_mtex_euler(discr: usize, path: &str) {
+    let (discr_d, discr_l, discr_o) = (
+        ((discr + discr) as f64 * PI).round() as usize, 
+        ((discr + discr) as f64 * PI).round() as usize, 
+        discr
+    );
+    dbg!(discr_d, discr_l, discr_o);
+    let (dang_d, dang_l, dang_o) = (
+        1.0 / discr_d as f64, 
+        1.0 / discr_l as f64, 
+        1.0 / discr_o as f64
+    );
+
+    let mut file = File::create(path).unwrap();
+    let rng = RefCell::new(Pcg64::seed_from_u64(2));
+    // for v in (0..3)
+    //         .map(|_| (0..discr).map(
+    //             |i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang
+    //         ))
+    //         .multi_cartesian_product() {
+    //     let fangs = FundAngles{ delta: v[0], lambda: v[1], omega: v[2] };
+    //     writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
+    // }
+    let threshold = 0.02;
+    for delta in (0..discr_d)
+        .map(|i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang_d)
+        // .filter(|&x| x < threshold)
+        // .take_while(|&x| x < threshold + dang_d)
+    {
+        for lambda in (0..discr_l)
+            .map(|i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang_l)
+            // .filter(|&x| x < threshold)
+            // .take_while(|&x| x < threshold + dang_l)
+        {
+            for omega in (0..discr_o)
+                .map(|i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang_o) 
+                // .filter(|&x| x < threshold)
+                // .take_while(|&x| x < threshold + dang_o)
+            {
+                let fangs = FundAngles{ delta, lambda, omega };
+                // writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
+                let ea = EulerAngles{ alpha: delta * 2.0 * PI, cos_beta: lambda * 2.0 - 1.0, gamma: omega * 2.0 * PI };
+                writeln_euler_angles_mtex_euler(ea, 1.0, &mut file);
+            }
+        }
+    }
+}
+
+// pub fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
+//     for w in g.node_weights_mut() {
+//         w.orientation = GrainOrientation::random(rng);
+//     }
+// }
+
 pub fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
+    let mut tmp = GrainOrientation::random(rng);
+    while tmp.fund.lambda <= f32::EPSILON as f64 {
+        tmp = GrainOrientation::random(rng);
+    }
+    let mut i = 0;
     for w in g.node_weights_mut() {
-        w.orientation = GrainOrientation::random(rng);
+        if i % 100 == 0 {
+            tmp = GrainOrientation::random(rng);
+            while tmp.fund.lambda <= f32::EPSILON as f64 {
+                tmp = GrainOrientation::random(rng);
+            }
+        }
+        i += 1;
+        w.orientation = tmp;
     }
 }
 

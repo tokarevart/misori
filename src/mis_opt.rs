@@ -100,10 +100,11 @@ impl Histogram {
 
     pub fn pairs(&self) -> impl Iterator<Item=(f64, f64)> {
         let bl = self.bar_len;
+        let inv_bl = 1.0 / bl;
         let first = self.beg + bl * 0.5;
         self.heights.clone().into_iter()
             .enumerate()
-            .map(move |(i, h)| (first + i as f64 * bl, h / bl))
+            .map(move |(i, h)| (first + i as f64 * bl, h * inv_bl))
     }
 }
 
@@ -189,40 +190,31 @@ pub fn max_gap(sorted_pairs: &Vec<AngleArea>) -> f64 {
     max_gap
 }
 
-pub fn diff_norm(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
-    (hist.pairs()
-        .map(|(a, d)| {
-            let fa = f(a);
-            ((fa - d) / (fa + d)).powi(2)
-        })
-        .sum::<f64>() / hist.bars() as f64
-    ).sqrt()
+fn squared_error_at(a: f64, d: f64, f: impl Fn(f64) -> f64) -> f64 {
+    let fa = f(a);
+    let e = fa - d;
+    e * e
+}
 
-        // .map(|(a, d)| {
-        //     let fa = f(a);
-        //     ((fa - d) / (1.0 + fa + d)).powi(2)
-        // })
-        // .sum::<f64>().sqrt()
+pub fn squared_error(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
+    hist.pairs()
+        .map(|(a, d)| squared_error_at(a, d, |x| f(x)))
+        .sum::<f64>()
+}
 
-        // .map(|(a, d)| {
-        //     let fa = f(a);
-        //     ((fa - d) / (1.0 + fa + d)).abs()
-        //     // ((fa - d) / (fa + d)).abs()
-        //     // (fa - d).abs()
-        // })
-        // .max_by(|&x, &y| x.partial_cmp(&y).unwrap())
-        // .unwrap()
+pub fn mean_squared_error(hist: &Histogram, f: impl Fn(f64) -> f64) -> f64 {
+    squared_error(hist, f) / hist.bars() as f64
 }
 
 type ObjFn<'a> = Box<dyn Fn(&Histogram) -> f64 + 'a>;
 
-pub fn distribution_obj_fn<'a>(distr: &'a impl Fn(f64) -> f64) -> ObjFn<'a> {
-    Box::new(|h: &Histogram| diff_norm(h, |x| distr(x)))
+pub fn distribution_loss_fn<'a>(distr: &'a impl Fn(f64) -> f64) -> ObjFn<'a> {
+    Box::new(|h: &Histogram| mean_squared_error(h, |x| distr(x)))
 }
 
 #[derive(Debug, Clone)]
 struct SwapperBackup {
-    dnorm: f64,
+    error: f64,
     grain1_idx: NodeIndex, 
     grain2_idx: NodeIndex,
     angles1: Vec<f64>,
@@ -232,19 +224,19 @@ struct SwapperBackup {
 
 pub struct Swapper<'a> {
     backup: Option<SwapperBackup>,
-    pub obj_fn: ObjFn<'a>,
-    pub dnorm: f64,
+    pub loss_fn: ObjFn<'a>,
+    pub error: f64,
 }
 
 impl<'a> Swapper<'a> {
     pub fn new_with_distr(hist: &Histogram, distr: &'a impl Fn(f64) -> f64) -> Self {
-        let obj_fn = distribution_obj_fn(distr);
-        Self::new_with_obj_fn(hist, obj_fn)
+        let loss_fn = distribution_loss_fn(distr);
+        Self::new_with_loss_fn(hist, loss_fn)
     }
 
-    pub fn new_with_obj_fn(hist: &Histogram, obj_fn: ObjFn<'a>) -> Self {
-        let dnorm = obj_fn(hist);
-        Self{ backup: None, obj_fn, dnorm }
+    pub fn new_with_loss_fn(hist: &Histogram, loss_fn: ObjFn<'a>) -> Self {
+        let error = loss_fn(hist);
+        Self{ backup: None, loss_fn, error }
     }
 
     fn update_hist_with_2grains_new_angles(
@@ -292,9 +284,9 @@ impl<'a> Swapper<'a> {
             hist, g, grain1_idx, grain2_idx, &prev_angles1, &prev_angles2
         );
     
-        let prev_dnorm = (self.obj_fn)(&prev_hist);
+        let prev_error = (self.loss_fn)(&prev_hist);
         self.backup = Some(SwapperBackup{ 
-            dnorm: prev_dnorm,
+            error: prev_error,
             grain1_idx, 
             grain2_idx,
             angles1: prev_angles1,
@@ -302,17 +294,17 @@ impl<'a> Swapper<'a> {
             hist: prev_hist,
         });
 
-        let dnorm = (self.obj_fn)(hist);
-        if dnorm < prev_dnorm {
-            SwapOptResult::MoreOptimal(dnorm)
+        let error = (self.loss_fn)(hist);
+        if error < prev_error {
+            SwapOptResult::MoreOptimal(error)
         } else {
-            SwapOptResult::SameOrLessOptimal(dnorm)
+            SwapOptResult::SameOrLessOptimal(error)
         }
     }
 
     pub fn undo(&mut self, g: &mut PolyGraph, hist: &mut Histogram) {
         let SwapperBackup{ 
-            dnorm: prev_dnorm,
+            error: prev_error,
             grain1_idx, 
             grain2_idx,
             angles1: prev_angles1,
@@ -324,13 +316,13 @@ impl<'a> Swapper<'a> {
         Self::swap_ori(g, grain1_idx, grain2_idx);
         restore_grain_angles(g, grain1_idx, prev_angles1);
         restore_grain_angles(g, grain2_idx, prev_angles2);
-        self.dnorm = prev_dnorm;
+        self.error = prev_error;
     }
 }
 
 #[derive(Debug, Clone)]
 struct RotatorBackup {
-    dnorm: f64,
+    error: f64,
     grain_idx: NodeIndex, 
     ori: Option<GrainOrientation>,
     angles: Vec<f64>,
@@ -339,19 +331,19 @@ struct RotatorBackup {
 
 pub struct Rotator<'a> {
     backup: Option<RotatorBackup>,
-    pub obj_fn: ObjFn<'a>,
-    pub dnorm: f64,
+    pub loss_fn: ObjFn<'a>,
+    pub error: f64,
 }
 
 impl<'a> Rotator<'a> {
     pub fn new_with_distr(hist: &Histogram, distr: &'a impl Fn(f64) -> f64) -> Self {
-        let obj_fn = distribution_obj_fn(distr);
-        Self::new_with_obj_fn(hist, obj_fn)
+        let loss_fn = distribution_loss_fn(distr);
+        Self::new_with_loss_fn(hist, loss_fn)
     }
 
-    pub fn new_with_obj_fn(hist: &Histogram, obj_fn: ObjFn<'a>) -> Self {
-        let dnorm = obj_fn(hist);
-        Self{ backup: None, obj_fn, dnorm }
+    pub fn new_with_loss_fn(hist: &Histogram, loss_fn: ObjFn<'a>) -> Self {
+        let error = loss_fn(hist);
+        Self{ backup: None, loss_fn, error }
     }
 
     fn update_hist_with_grain_new_angles(
@@ -381,21 +373,21 @@ impl<'a> Rotator<'a> {
         
         let prev_angles = update_grain_angles(g, grain_idx, syms);
         let prev_hist = Self::update_hist_with_grain_new_angles(hist, g, grain_idx, &prev_angles);
-        let prev_dnorm = (self.obj_fn)(&prev_hist);
+        let prev_error = (self.loss_fn)(&prev_hist);
         self.backup = Some(RotatorBackup{
-            dnorm: prev_dnorm,
+            error: prev_error,
             grain_idx,
             ori: prev_ori,
             angles: prev_angles,
             hist: prev_hist,
         });
 
-        let dnorm = (self.obj_fn)(hist);
+        let error = (self.loss_fn)(hist);
         use RotationOptResult::*;
-        if dnorm < prev_dnorm {
-            MoreOptimal{ criterion: dnorm, prev_ori }
+        if error < prev_error {
+            MoreOptimal{ criterion: error, prev_ori }
         } else {
-            SameOrLessOptimal{ criterion: dnorm, prev_ori }
+            SameOrLessOptimal{ criterion: error, prev_ori }
         }
     }
 
@@ -409,7 +401,7 @@ impl<'a> Rotator<'a> {
         }
 
         let RotatorBackup{ 
-            dnorm: prev_dnorm,
+            error: prev_error,
             grain_idx,
             angles: prev_angles,
             hist: prev_hist,
@@ -418,6 +410,6 @@ impl<'a> Rotator<'a> {
 
         *hist = prev_hist;
         restore_grain_angles(g, grain_idx, prev_angles);
-        self.dnorm = prev_dnorm;
+        self.error = prev_error;
     }
 }
