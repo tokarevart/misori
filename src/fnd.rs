@@ -200,9 +200,9 @@ impl FundGrid {
     }
 
     pub fn with_target_num_cells(n: usize) -> Self {
-        let os = (n as f64 / (4.0 * PI * PI)).powf(1.0 / 3.0).round() as usize;
-        let ds = (os as f64 * 2.0 * PI).round() as usize;
-        // let ds = os;
+        let fos = (n as f64 / (4.0 * PI * PI)).powf(1.0 / 3.0);
+        let os = fos.round() as usize;
+        let ds = (fos * 2.0 * PI).round() as usize;
         let ls = ds;
         Self::new(ds, ls, os)
     }

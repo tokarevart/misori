@@ -234,7 +234,7 @@ fn main4() {
     let syms = cube_rotational_symmetry();
     mis_opt::update_angles(&mut g, &syms);
 
-    let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count() + 1000);
+    let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count());
     println!("num cells: {}", grid.num_cells());
     let misang_range = mis_opt::cubic_range();
     let mut hist = mis_opt::Histogram::new(misang_range.clone(), 30);
