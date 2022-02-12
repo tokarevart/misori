@@ -1,3 +1,5 @@
+use core::ops::Range;
+
 use crate::*;
 
 pub fn normalize_grain_boundary_area(g: &mut PolyGraph) {
@@ -5,6 +7,11 @@ pub fn normalize_grain_boundary_area(g: &mut PolyGraph) {
     for AngleArea{ area, .. } in g.edge_weights_mut() {
         *area *= inv_area;
     }
+}
+
+pub fn cubic_range() -> Range<f64> {
+    let end = 2.0 * ((SQRT_2 - 1.0) * (5.0 - 2.0 * SQRT_2).sqrt()).atan();
+    0.0..end
 }
 
 #[derive(Clone, Debug)]
@@ -17,7 +24,8 @@ pub struct Histogram {
 }
 
 impl Histogram {
-    pub fn new(beg: f64, end: f64, bars: usize) -> Self {
+    pub fn new(range: Range<f64>, bars: usize) -> Self {
+        let (beg, end) = (range.start, range.end);
         let hs = vec![0.0; bars];
         Histogram { 
             beg, end, heights: hs, 

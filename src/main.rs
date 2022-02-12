@@ -61,13 +61,13 @@ fn main1() {
     let syms = cube_rotational_symmetry();
     mis_opt::update_angles(&mut g, &syms);
 
-    let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
-    let mut hist = mis_opt::Histogram::new(hist_beg, hist_end, 30);
+    let misang_range = mis_opt::cubic_range();
+    let mut hist = mis_opt::Histogram::new(misang_range.clone(), 30);
     mis_opt::normalize_grain_boundary_area(&mut g);
     let aa = mis_opt::angle_area_vec(&g);
     hist.add_from_slice(&aa);
 
-    let uni = StatUniform::new(hist_beg, hist_end).unwrap();
+    let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
     
     let now = Instant::now();
@@ -110,13 +110,13 @@ fn main2() {
     let syms = cube_rotational_symmetry();
     mis_opt::update_angles(&mut g, &syms);
 
-    let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
-    let mut hist = mis_opt::Histogram::new(hist_beg, hist_end, 30);
+    let misang_range = mis_opt::cubic_range();
+    let mut hist = mis_opt::Histogram::new(misang_range.clone(), 30);
     mis_opt::normalize_grain_boundary_area(&mut g);
     let aa = mis_opt::angle_area_vec(&g);
     hist.add_from_slice(&aa);
 
-    let uni = StatUniform::new(hist_beg, hist_end).unwrap();
+    let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
     
     // let now = Instant::now();
@@ -236,15 +236,15 @@ fn main4() {
 
     let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count() + 1000);
     println!("num cells: {}", grid.num_cells());
-    let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
-    let mut hist = mis_opt::Histogram::new(hist_beg, hist_end, 30);
+    let misang_range = mis_opt::cubic_range();
+    let mut hist = mis_opt::Histogram::new(misang_range.clone(), 30);
     ori_opt::normalize_grain_volumes(&mut g);
     mis_opt::normalize_grain_boundary_area(&mut g);
     grid.add_from_iter(g.node_weights());
     let aa = mis_opt::angle_area_vec(&g);
     hist.add_from_slice(&aa);
 
-    let uni = StatUniform::new(hist_beg, hist_end).unwrap();
+    let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
 
     let minmax_density = |g: &fnd::FundGrid| (
@@ -363,8 +363,8 @@ fn main5() {
         let syms = cube_rotational_symmetry();
         mis_opt::update_angles(&mut g, &syms);
 
-        let (hist_beg, hist_end) = (0.0, 70.0f64.to_radians());
-        let mut hist = mis_opt::Histogram::new(hist_beg, hist_end, 50);
+        let misang_range = mis_opt::cubic_range();
+        let mut hist = mis_opt::Histogram::new(misang_range.clone(), 50);
         mis_opt::normalize_grain_boundary_area(&mut g);
         let aa = mis_opt::angle_area_vec(&g);
         hist.add_from_slice(&aa);
@@ -376,7 +376,7 @@ fn main5() {
         starting_hists.push(hist.pairs().collect());
         // return;
 
-        let uni = StatUniform::new(hist_beg, hist_end).unwrap();
+        let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
         let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
         
         let now = Instant::now();
