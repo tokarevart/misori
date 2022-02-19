@@ -121,29 +121,14 @@ fn misorientation_angle(
     syms: &Vec<UnitQuat>
 ) -> f64 {
     let r = o1.rotation_to(&o2);
-    syms.iter()
-        .map(|s| (s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs())
-        .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
-        .acos() * 2.0
-
-    //  simplified Ostapovich version
-    // let r = o1.rotation_to(&o2);
-    // syms.iter()
-    //     .map(|s| (s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs().acos())
-    //     .min_by(|x, y| x.partial_cmp(y).unwrap())
-    //     .unwrap() * 2.0
-
-    //  most simple and inefficient
-    // syms.iter()
-    //     .map(|s| o1.angle_to(&(s * o2)))
-    //     .min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
-
-    //  using nalgebra funcs
-    // let inv_r = o1.rotation_to(&o2).inverse();
-    // syms.iter()
-    //     .map(|s| inv_r.angle_to(s))
-    //     .min_by(|x, y| x.partial_cmp(y).unwrap())
-    //     .unwrap()
+    if r.w > 1.0 - f32::EPSILON as f64 {
+        0.0
+    } else {
+        syms.iter()
+            .map(|s| (s.scalar() * r.scalar() - s.imag().dot(&r.imag())).abs())
+            .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap()
+            .acos() * 2.0
+    }
 }
 
 fn update_angle(
@@ -154,6 +139,9 @@ fn update_angle(
     let (o1, o2) = (g[n1].orientation.quat, g[n2].orientation.quat);
     let prev_angle = g[e].angle;
     g[e].angle = misorientation_angle(o1, o2, syms);
+    if g[e].angle.is_nan() {
+        dbg!((n1, n2));
+    }
     prev_angle
 }
 

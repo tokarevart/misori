@@ -11,50 +11,53 @@ use std::vec;
 use misori::*;
 
 fn main1() {
-    let bnds = parse_bnds("bnds-10k.stface");
+    let bnds = parse_bnds("cubes.stface");
     let num_vols = count_volumes_from_bnds(&bnds);
     let mut g = build_graph(bnds, vec![1.0; num_vols]);
     println!("nodes {}, edges {}", g.node_count(), g.edge_count());
-    // let mut g = misori::parse_graph("bnds-10k.stface", "vols-10k.stpoly");
+    // let mut g = misori::parse_graph("cubes.stface", "vols-10k.stpoly");
 
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
+
     // write_orientations_mtex_euler(&g, "orientations-euler.out");
-
-    let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count());
-    println!("num cells: {}", grid.num_cells());
-    ori_opt::normalize_grain_volumes(&mut g);
-    grid.add_from_iter(g.node_weights());
-
-    let minmax_density = |g: &fnd::FundGrid| (
-        *g.cells.iter().flatten().flatten()
-            .min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap() / g.dvol, 
-        *g.cells.iter().flatten().flatten()
-            .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap() / g.dvol
-    );
-
-    println!("min max ori density: {:?}", minmax_density(&grid));
+    // return;
     
-    let now = Instant::now();
-    let mut rotator = ori_opt::Rotator::new(&grid);
-    println!("starting error: {}", rotator.mse);
-    for i in 0..10_000_000 {
-        if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
-            RotationMode::Start,
-            misori::random_grain(&g, &mut rng),
-            &mut g, &mut grid, &mut rng
-        ) {
-            // println!("iter {}, error {}", i, error);
-        } else {
-            rotator.undo(&mut g, &mut grid);
-        }
-    }
-    println!(
-        "rotations alg time: {} s, error {}", 
-        now.elapsed().as_secs_f64(), rotator.mse
-    );
+    // let mut grid = fnd::FundGrid::with_target_num_cells(g.node_count());
+    // println!("num cells: {}", grid.num_cells());
+    // ori_opt::normalize_grain_volumes(&mut g);
+    // grid.add_from_iter(g.node_weights());
 
-    println!("min max ori density: {:?}", minmax_density(&grid));
+    // let minmax_density = |g: &fnd::FundGrid| (
+    //     *g.cells.iter().flatten().flatten()
+    //         .min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap() / g.dvol, 
+    //     *g.cells.iter().flatten().flatten()
+    //         .max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap() / g.dvol
+    // );
+
+    // println!("min max ori density: {:?}", minmax_density(&grid));
+    
+    // let now = Instant::now();
+    // let mut rotator = ori_opt::Rotator::new(&grid);
+    // println!("starting error: {}", rotator.mse);
+    // for i in 0..10_000_000 {
+    //     if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
+    //         RotationMode::Start,
+    //         misori::random_grain(&g, &mut rng),
+    //         &mut g, &mut grid, &mut rng
+    //     ) {
+    //         // println!("iter {}, error {}", i, error);
+    //     } else {
+    //         rotator.undo(&mut g, &mut grid);
+    //     }
+    // }
+    // println!(
+    //     "rotations alg time: {} s, error {}", 
+    //     now.elapsed().as_secs_f64(), rotator.mse
+    // );
+
+    // println!("min max ori density: {:?}", minmax_density(&grid));
+
     // write_orientations_mtex_euler(&g, "orientations-euler.out");
     // return;
 
@@ -64,16 +67,14 @@ fn main1() {
     let misang_range = mis_opt::cubic_range();
     let mut hist = mis_opt::Histogram::new(misang_range.clone(), 30);
     mis_opt::normalize_grain_boundary_area(&mut g);
-    let aa = mis_opt::angle_area_vec(&g);
-    hist.add_from_slice(&aa);
+    hist.add_from_slice(&mis_opt::angle_area_vec(&g));
 
-    let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
     
     let now = Instant::now();
     let distrfn = |x| lognorm.pdf(x);
     let mut swapper = mis_opt::Swapper::new_with_distr(&hist, &distrfn);
-    for i in 0..1_000_000 {
+    for i in 0..2_000_000 {
         if let SwapOptResult::MoreOptimal(error) = swapper.swap(
             misori::random_grains2(&g, &mut rng),
             &mut g, &mut hist, &syms
@@ -113,8 +114,7 @@ fn main2() {
     let misang_range = mis_opt::cubic_range();
     let mut hist = mis_opt::Histogram::new(misang_range.clone(), 30);
     mis_opt::normalize_grain_boundary_area(&mut g);
-    let aa = mis_opt::angle_area_vec(&g);
-    hist.add_from_slice(&aa);
+    hist.add_from_slice(&mis_opt::angle_area_vec(&g));
 
     let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
@@ -168,6 +168,9 @@ fn main3() {
     let mut rng = Pcg64::seed_from_u64(0);
     set_random_orientations(&mut g, &mut rng);
 
+    // write_orientations_mtex_euler(&g, "orientations-euler.out");
+    // return;
+
     let mut grid = fnd::FundGrid::with_target_num_cells(num_vols);
     println!("num cells: {}", grid.num_cells());
     ori_opt::normalize_grain_volumes(&mut g);
@@ -197,7 +200,7 @@ fn main3() {
     let mut rotator = ori_opt::Rotator::new(&grid);
     println!("starting : {}", rotator.mse);
     // dbg!(ori_opt::quad_diff_norm(&grid).sqrt());
-    for i in 0..10_000_000 {
+    for i in 0..1_000_000 {
         if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
             RotationMode::Start,
             misori::random_grain(&g, &mut rng),
@@ -241,10 +244,14 @@ fn main4() {
     ori_opt::normalize_grain_volumes(&mut g);
     mis_opt::normalize_grain_boundary_area(&mut g);
     grid.add_from_iter(g.node_weights());
-    let aa = mis_opt::angle_area_vec(&g);
-    hist.add_from_slice(&aa);
+    hist.add_from_slice(&mis_opt::angle_area_vec(&g));
 
-    let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
+    // let mut file = File::create("hist.txt").unwrap();
+    // for (angle, density) in hist.pairs() {
+    //     writeln!(&mut file, "{}\t{}", angle.to_degrees(), density.to_radians()).unwrap();
+    // }
+    // return;
+
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
 
     let minmax_density = |g: &fnd::FundGrid| (
@@ -259,16 +266,17 @@ fn main4() {
     let distr = |x| lognorm.pdf(x);
     let mut rotator_mis = mis_opt::Rotator::new_with_distr(&hist, &distr);
 
-    let loss_sum = |a: f64, b: f64| a * a + 100.0 * b * b;
+    let rho = 0.99;
+    let loss_sum = |m: f64, o: f64| rho * m * m + (1.0 - rho) * o * o;
 
     let mut min_crit = loss_sum(
-        rotator_ori.mse,
         rotator_mis.error,
+        rotator_ori.mse,
     );
-    for i in 0..1_000_000 {
+    for i in 0..5_000_000 {
         let grain_idx = misori::random_grain(&g, &mut rng);
 
-        let (dnorm_ori, prev_ori) = match rotator_ori.rotate(
+        let (ori_error, prev_ori) = match rotator_ori.rotate(
             RotationMode::Start,
             grain_idx, &mut g, &mut grid, &mut rng
         ) {
@@ -279,7 +287,7 @@ fn main4() {
                 criterion: error, prev_ori 
             } => (error, prev_ori.unwrap()),
         };
-        let dnorm_mis = match rotator_mis.rotate(
+        let mis_error = match rotator_mis.rotate(
             RotationMode::Continue{ prev_ori },
             grain_idx, &mut g, &mut hist, &syms, &mut rng
         ) {
@@ -287,12 +295,12 @@ fn main4() {
             RotationOptResult::SameOrLessOptimal{ criterion: error, .. } => error,
         };
 
-        let crit = loss_sum(dnorm_ori, dnorm_mis);
+        let crit = loss_sum(mis_error, ori_error);
         if crit < min_crit {
             min_crit = crit;
             // println!(
             //     "iter {}, ori error {}, mis error {}", 
-            //     i, dnorm_ori, dnorm_mis
+            //     i, ori_error, mis_error
             // );
         } else {
             rotator_ori.undo(&mut g, &mut grid);
@@ -366,8 +374,7 @@ fn main5() {
         let misang_range = mis_opt::cubic_range();
         let mut hist = mis_opt::Histogram::new(misang_range.clone(), 50);
         mis_opt::normalize_grain_boundary_area(&mut g);
-        let aa = mis_opt::angle_area_vec(&g);
-        hist.add_from_slice(&aa);
+        hist.add_from_slice(&mis_opt::angle_area_vec(&g));
 
         // let mut file = File::create("starting-hist.txt").unwrap();
         // for (angle, density) in hist.pairs() {

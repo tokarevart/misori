@@ -1,4 +1,3 @@
-use itertools::{Itertools, multizip};
 use nalgebra as na;
 use na::{Quaternion, UnitQuaternion, Vector3};
 use rand::distributions::Uniform as RandUniform;
@@ -331,29 +330,29 @@ pub fn write_cells_random_orientations_mtex_euler(discr: usize, path: &str) {
     }
 }
 
-// pub fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
-//     for w in g.node_weights_mut() {
-//         w.orientation = GrainOrientation::random(rng);
-//     }
-// }
-
 pub fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
-    let mut tmp = GrainOrientation::random(rng);
-    while tmp.fund.lambda <= f32::EPSILON as f64 {
-        tmp = GrainOrientation::random(rng);
-    }
-    let mut i = 0;
     for w in g.node_weights_mut() {
-        if i % 100 == 0 {
-            tmp = GrainOrientation::random(rng);
-            while tmp.fund.lambda <= f32::EPSILON as f64 {
-                tmp = GrainOrientation::random(rng);
-            }
-        }
-        i += 1;
-        w.orientation = tmp;
+        w.orientation = GrainOrientation::random(rng);
     }
 }
+
+// pub fn set_random_orientations(g: &mut PolyGraph, rng: &mut impl Rng) {
+//     let mut tmp = GrainOrientation::random(rng);
+//     while tmp.fund.lambda <= f32::EPSILON as f64 {
+//         tmp = GrainOrientation::random(rng);
+//     }
+//     let mut i = 0;
+//     for w in g.node_weights_mut() {
+//         if i % 1000 == 0 {
+//             tmp = GrainOrientation::random(rng);
+//             while tmp.fund.lambda <= f32::EPSILON as f64 {
+//                 tmp = GrainOrientation::random(rng);
+//             }
+//         }
+//         i += 1;
+//         w.orientation = tmp;
+//     }
+// }
 
 pub fn cube_rotational_symmetry() -> Vec<UnitQuat> {
     let dirs = vec![
