@@ -10,7 +10,7 @@ pub fn normalize_grain_volumes(g: &mut PolyGraph) {
 pub fn texture_index(grid: &fnd::FundGrid) -> f64 {
     grid.cells.iter().flatten().flatten()
         .map(|&x| x * x)
-        .sum::<f64>() / grid.dvol
+        .sum::<f64>() * grid.dvol
 }
 
 fn squared_error_at(d: f64, grid: &fnd::FundGrid) -> f64 {

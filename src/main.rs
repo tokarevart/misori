@@ -266,14 +266,14 @@ fn main4() {
     let distr = |x| lognorm.pdf(x);
     let mut rotator_mis = mis_opt::Rotator::new_with_distr(&hist, &distr);
 
-    let rho = 0.99;
+    let rho = 0.9;
     let loss_sum = |m: f64, o: f64| rho * m * m + (1.0 - rho) * o * o;
 
     let mut min_crit = loss_sum(
         rotator_mis.error,
         rotator_ori.mse,
     );
-    for i in 0..5_000_000 {
+    for i in 0..1_000_000 {
         let grain_idx = misori::random_grain(&g, &mut rng);
 
         let (ori_error, prev_ori) = match rotator_ori.rotate(
@@ -313,6 +313,12 @@ fn main4() {
     );
 
     println!("min max ori density: {:?}", minmax_density(&grid));
+
+    println!("mis hist area: {}", hist.area());
+    println!("ori grid vol : {}", 
+        grid.cells.iter().flatten().flatten()
+            .sum::<f64>()
+    );
 
     let mut file = File::create("hist.txt").unwrap();
     for (angle, density) in hist.pairs() {
