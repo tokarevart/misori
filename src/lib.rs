@@ -1,10 +1,11 @@
 use nalgebra as na;
-use na::{Quaternion, UnitQuaternion, Vector3};
+use na::{Quaternion, UnitQuaternion, UnitVector3, Vector3};
 use rand::distributions::Uniform as RandUniform;
 use std::cell::RefCell;
 use std::f64::consts::*;
 use std::fs::File;
 use std::io::Write;
+use std::ops::{Deref, DerefMut};
 
 pub use petgraph::graph::{EdgeIndex, NodeIndex, UnGraph};
 pub use petgraph::visit::EdgeRef;
@@ -220,6 +221,22 @@ pub fn write_orientations_mtex_euler(g: &PolyGraph, path: &str) {
     }
 }
 
+pub fn write_random_orientations_in_rodrigues_sphere_mtex_euler(
+    num_oris: usize, center: Vector3<f64>, radius: f64, path: &str
+) {
+    let mut file = File::create(path).unwrap();
+    let mut rng = Pcg64::seed_from_u64(0);
+    for _ in 0..num_oris {
+        let rod = RodriguesVector::random_in_sphere(center, radius, &mut rng);
+        let q = UnitQuat::from(rod);
+        writeln_euler_angles_mtex_euler(
+            EulerAngles::from(q), 
+            1.0, 
+            &mut file
+        );
+    }
+}
+
 // write as if grains of a certain polycrystal have random orientations
 pub fn write_random_orientations_mtex_euler(
     g: &PolyGraph, path: &str, rng: &mut impl Rng
@@ -322,9 +339,63 @@ pub fn write_cells_random_orientations_mtex_euler(discr: usize, path: &str) {
                 // .take_while(|&x| x < threshold + dang_o)
             {
                 let fangs = FundAngles{ delta, lambda, omega };
-                // writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
-                let ea = EulerAngles{ alpha: delta * 2.0 * PI, cos_beta: lambda * 2.0 - 1.0, gamma: omega * 2.0 * PI };
-                writeln_euler_angles_mtex_euler(ea, 1.0, &mut file);
+                writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
+                // let ea = EulerAngles{ alpha: delta * 2.0 * PI, cos_beta: lambda * 2.0 - 1.0, gamma: omega * 2.0 * PI };
+                // writeln_euler_angles_mtex_euler(ea, 1.0, &mut file);
+            }
+        }
+    }
+}
+
+pub fn write_cell_random_orientations_mtex_euler(discr: usize, path: &str) {
+    let (discr_d, discr_l, discr_o) = (
+        ((discr + discr) as f64 * PI).round() as usize, 
+        ((discr + discr) as f64 * PI).round() as usize, 
+        discr
+    );
+    dbg!(discr_d, discr_l, discr_o);
+    let (dang_d, dang_l, dang_o) = (
+        1.0 / discr_d as f64, 
+        1.0 / discr_l as f64, 
+        1.0 / discr_o as f64
+    );
+
+    let mut file = File::create(path).unwrap();
+    let rng = RefCell::new(Pcg64::seed_from_u64(2));
+    // for v in (0..3)
+    //         .map(|_| (0..discr).map(
+    //             |i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang
+    //         ))
+    //         .multi_cartesian_product() {
+    //     let fangs = FundAngles{ delta: v[0], lambda: v[1], omega: v[2] };
+    //     writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
+    // }
+    let threshold = 0.02;
+    let cell_d = 0;
+    let cell_l = 0;
+    let cell_o = 0;
+    for delta in std::iter::repeat(cell_d)
+        .take(20)
+        .map(|i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang_d)
+        // .filter(|&x| x < threshold)
+        // .take_while(|&x| x < threshold + dang_d)
+    {
+        for lambda in std::iter::repeat(cell_l)
+            .take(20)
+            .map(|i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang_l)
+            // .filter(|&x| x < threshold)
+            // .take_while(|&x| x < threshold + dang_l)
+        {
+            for omega in std::iter::repeat(cell_o)
+                .take(20)
+                .map(|i| (i as f64 + 0.5 + rng.borrow_mut().gen_range(-0.5..= 0.5)) * dang_o) 
+                // .filter(|&x| x < threshold)
+                // .take_while(|&x| x < threshold + dang_o)
+            {
+                let fangs = FundAngles{ delta, lambda, omega };
+                writeln_fund_angles_mtex_euler(fangs, 1.0, &mut file);
+                // let ea = EulerAngles{ alpha: delta * 2.0 * PI, cos_beta: lambda * 2.0 - 1.0, gamma: omega * 2.0 * PI };
+                // writeln_euler_angles_mtex_euler(ea, 1.0, &mut file);
             }
         }
     }
@@ -435,6 +506,64 @@ impl From<EulerAngles> for UnitQuat {
             factor_minus_b * half_diff_a_g.cos(), 
             factor_minus_b * half_diff_a_g.sin(), 
             factor_plus_b * half_sum_a_g.sin(), 
+        );
+        UnitQuat::new_unchecked(q)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RodriguesVector(Vector3<f64>);
+
+impl RodriguesVector {
+    pub fn axis(&self) -> UnitVector3<f64> {
+        UnitVector3::new_normalize(self.0)
+    }
+
+    pub fn angle(&self) -> f64 {
+        self.norm().atan() * 2.0
+    }
+
+    pub fn from_axis_angle(axis: UnitVector3<f64>, angle: f64) -> Self {
+        Self(axis.into_inner() * (angle * 0.5).tan())
+    }
+
+    pub fn random_in_sphere(center: Vector3<f64>, radius: f64, rng: &mut impl Rng) -> Self {
+        let mut rod = Vector3::from_fn(|_, _| rng.gen_range(-1.0..1.0));
+        while rod.norm_squared() >= 1.0 {
+            rod = Vector3::from_fn(|_, _| rng.gen_range(-1.0..1.0));
+        }
+        Self(rod * radius + center)
+    }
+}
+
+impl Deref for RodriguesVector {
+    type Target = Vector3<f64>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for RodriguesVector {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<UnitQuat> for RodriguesVector {
+    fn from(o: UnitQuat) -> Self {
+        Self(o.imag() / o.scalar())
+    }
+}
+
+impl From<RodriguesVector> for UnitQuat {
+    fn from(r: RodriguesVector) -> Self {
+        let sqtan = r.norm_squared();
+        let sqcos = 1.0 / (1.0 + sqtan);
+        let sqsin = 1.0 - sqcos;
+
+        let q = Quaternion::from_parts(
+            sqcos.sqrt(), r.normalize() * sqsin.sqrt()
         );
         UnitQuat::new_unchecked(q)
     }
