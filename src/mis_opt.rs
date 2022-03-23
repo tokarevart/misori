@@ -10,7 +10,7 @@ pub fn normalize_grain_boundary_area(g: &mut PolyGraph) {
 }
 
 pub fn cubic_range() -> Range<f64> {
-    let end = 2.0 * ((SQRT_2 - 1.0) * (5.0 - 2.0 * SQRT_2).sqrt()).atan();
+    let end = 2.0 * (23.0 - 16.0 * SQRT_2).sqrt().atan();
     0.0..end
 }
 

@@ -221,13 +221,23 @@ pub fn write_orientations_mtex_euler(g: &PolyGraph, path: &str) {
     }
 }
 
+pub fn random_vector_in_sphere(
+    center: Vector3<f64>, radius: f64, rng: &mut impl Rng
+) -> Vector3<f64> {
+    let mut v = Vector3::from_fn(|_, _| rng.gen_range(-1.0..1.0));
+    while v.norm_squared() >= 1.0 {
+        v = Vector3::from_fn(|_, _| rng.gen_range(-1.0..1.0));
+    }
+    center + v * radius
+}
+
 pub fn write_random_orientations_in_rodrigues_sphere_mtex_euler(
     num_oris: usize, center: Vector3<f64>, radius: f64, path: &str
 ) {
     let mut file = File::create(path).unwrap();
     let mut rng = Pcg64::seed_from_u64(0);
     for _ in 0..num_oris {
-        let rod = RodriguesVector::random_in_sphere(center, radius, &mut rng);
+        let rod = RodriguesVector(random_vector_in_sphere(center, radius, &mut rng));
         let q = UnitQuat::from(rod);
         writeln_euler_angles_mtex_euler(
             EulerAngles::from(q), 
@@ -526,14 +536,6 @@ impl RodriguesVector {
     pub fn from_axis_angle(axis: UnitVector3<f64>, angle: f64) -> Self {
         Self(axis.into_inner() * (angle * 0.5).tan())
     }
-
-    pub fn random_in_sphere(center: Vector3<f64>, radius: f64, rng: &mut impl Rng) -> Self {
-        let mut rod = Vector3::from_fn(|_, _| rng.gen_range(-1.0..1.0));
-        while rod.norm_squared() >= 1.0 {
-            rod = Vector3::from_fn(|_, _| rng.gen_range(-1.0..1.0));
-        }
-        Self(rod * radius + center)
-    }
 }
 
 impl Deref for RodriguesVector {
@@ -566,5 +568,210 @@ impl From<RodriguesVector> for UnitQuat {
             sqcos.sqrt(), r.normalize() * sqsin.sqrt()
         );
         UnitQuat::new_unchecked(q)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HomochoricVector(Vector3<f64>);
+
+impl HomochoricVector {
+    pub const fn max_norm() -> f64 {
+        // (3/4 PI)^(1/3)
+        1.3306700394914686
+    }
+
+    pub fn from_axis_angle(axis: UnitVector3<f64>, angle: f64) -> Self {
+        Self(axis.into_inner() * (angle * 0.5).tan())
+    }
+
+    pub fn axis(&self) -> UnitVector3<f64> {
+        UnitVector3::new_normalize(self.0)
+    }
+
+    // Excellent accuracy (discrepancy < 3e-16) only inside 
+    // cubic lattice fundamental region with center at {0,0,0}.
+    // This function is faster that the more general angle function, 
+    // which has excellent accuracy over the entire 
+    // sphere region of radius <= Pi.
+    // Taylor series expansion was used.
+    pub fn angle_cubic_lattice(&self) -> f64 {
+        let f = self.norm();
+        let mut fps = [f * f; 15];
+        fps[0] = f;
+        // hpm1 = (power-1)/2
+        for hpm1 in 1..15 {
+            fps[hpm1] *= fps[hpm1 - 1];
+        }
+        let mut angle 
+               = fps[14] * 8.437627816403512e-9;
+        angle += fps[13] * 2.611698983626115e-8;
+        angle += fps[12] * 8.14492581066545e-8;
+        angle += fps[11] * 2.562495766735708e-7;
+        angle += fps[10] * 8.146186419626044e-7;
+        angle += fps[ 9] * 2.6222748609942864e-6;
+        angle += fps[ 8] * 8.571635081660883e-6;
+        angle += fps[ 7] * 2.8563409699544155e-5;
+        angle += fps[ 6] * 9.758038383888724e-5;
+        angle += fps[ 5] * 3.4468642468642467e-4;
+        angle += fps[ 4] * 1.2764378478664193e-3;
+        angle += fps[ 3] * 5.079365079365079e-3;
+        angle += fps[ 2] * 2.2857142857142857e-2;
+        angle += fps[ 1] * 1.3333333333333333e-1;
+        angle += fps[ 0] * 2.0;
+        angle
+    }
+
+    // Excellent accuracy (discrepancy < 2e-15) over the entire
+    // sphere region of radius <= Pi and center at {0,0,0}.
+    // Taylor series expansion was used.
+    pub fn angle(&self) -> f64 {
+        let f = self.norm();
+        if f < 1.026 {
+            Self::angle_left_range(f)
+        } else if f < 1.21 {
+            Self::angle_center_range(f)
+        } else {
+            Self::angle_right_range(f)
+        }
+    }
+
+    // f < 1.026
+    fn angle_left_range(f: f64) -> f64 {
+        let mut fps = [f * f; 32];
+        fps[0] = f;
+        // hpm1 = (power-1)/2
+        for hpm1 in 1..32 {
+            fps[hpm1] *= fps[hpm1 - 1];
+        }
+        let mut angle 
+               = fps[31] * 6.968630061728477e-17;
+        angle += fps[30] * 2.045336930935958e-16;
+        angle += fps[29] * 6.01190584638049e-16;
+        angle += fps[28] * 1.769835989778688e-15;
+        angle += fps[27] * 5.218861886664031e-15;
+        angle += fps[26] * 1.5416802565973896e-14;
+        angle += fps[25] * 4.562980197872712e-14;
+        angle += fps[24] * 1.3533368742122268e-13;
+        angle += fps[23] * 4.0229261667894436e-13;
+        angle += fps[22] * 1.1987889518291322e-12;
+        angle += fps[21] * 3.581833572447713e-12;
+        angle += fps[20] * 1.0733505496731973e-11;
+        angle += fps[19] * 3.226856395601492e-11;
+        angle += fps[18] * 9.735726638701617e-11;
+        angle += fps[17] * 2.94904636461971e-10;
+        angle += fps[16] * 8.972719764048503e-10;
+        angle += fps[15] * 2.7437177552429166e-9;
+        angle += fps[14] * 8.437627816403512e-9;
+        angle += fps[13] * 2.611698983626115e-8;
+        angle += fps[12] * 8.14492581066545e-8;
+        angle += fps[11] * 2.562495766735708e-7;
+        angle += fps[10] * 8.146186419626044e-7;
+        angle += fps[ 9] * 2.6222748609942864e-6;
+        angle += fps[ 8] * 8.571635081660883e-6;
+        angle += fps[ 7] * 2.8563409699544155e-5;
+        angle += fps[ 6] * 9.758038383888724e-5;
+        angle += fps[ 5] * 3.4468642468642467e-4;
+        angle += fps[ 4] * 1.2764378478664193e-3;
+        angle += fps[ 3] * 5.079365079365079e-3;
+        angle += fps[ 2] * 2.2857142857142857e-2;
+        angle += fps[ 1] * 1.3333333333333333e-1;
+        angle += fps[ 0] * 2.0;
+        angle
+    }
+
+    // 1.026 <= f < 1.21
+    fn angle_center_range(f: f64) -> f64 {
+        let f = f * f * f - 1.4200346240000004;
+        let mut fps = [f; 21];
+        fps[0] = f;
+        // pm1 = power-1
+        for pm1 in 1..21 {
+            fps[pm1] *= fps[pm1 - 1];
+        }
+        let mut angle 
+               = fps[20] * 6.112282530164043e-6;
+        angle += fps[19] * 9.267752741652023e-6;
+        angle += fps[18] * 1.4099969031217735e-5;
+        angle += fps[17] * 2.153251679864619e-5;
+        angle += fps[16] * 3.3021277271825496e-5;
+        angle += fps[15] * 5.0878708492908895e-5;
+        angle += fps[14] * 7.881226624062063e-5;
+        angle += fps[13] * 1.228221720802075e-4;
+        angle += fps[12] * 1.9275708920062694e-4;
+        angle += fps[11] * 3.0494143294350633e-4;
+        angle += fps[10] * 4.8716771278701815e-4;
+        angle += fps[ 9] * 7.867280184083877e-4;
+        angle += fps[ 8] * 1.2899836568644315e-3;
+        angle += fps[ 7] * 2.1448108592074656e-3;
+        angle += fps[ 6] * 3.6722908374677956e-3;
+        angle += fps[ 5] * 6.359511106508804e-3;
+        angle += fps[ 4] * 1.1926991336982563e-2;
+        angle += fps[ 3] * 2.1581693528033647e-2;
+        angle += fps[ 2] * 5.299053763905835e-2;
+        angle += fps[ 1] * 9.200967334058098e-2;
+        angle += fps[ 0] * 7.413890898193597e-1;
+        angle + 2.4954725969130944
+    }
+
+    // 1.21 <= f
+    fn angle_right_range(f: f64) -> f64 {
+        let f = f * f * f - 2.356194490192345;
+        let mut fps = [f * f; 11];
+        fps[0] = f;
+        // hpm1 = (power-1)/2
+        for hpm1 in 1..11 {
+            fps[hpm1] *= fps[hpm1 - 1];
+        }
+        let mut angle 
+               = fps[10] * 3.484720900818485e-10;
+        angle += fps[ 9] * 2.212976270144877e-9;
+        angle += fps[ 8] * 1.4267166448549486e-8;
+        angle += fps[ 7] * 9.373661110642795e-8;
+        angle += fps[ 6] * 6.310612909429112e-7;
+        angle += fps[ 5] * 4.389528419477181e-6;
+        angle += fps[ 4] * 3.1970578465862044e-5;
+        angle += fps[ 3] * 2.496715802614294e-4;
+        angle += fps[ 2] * 2.1947873799725653e-3;
+        angle += fps[ 1] * 2.4691358024691357e-2;
+        angle += fps[ 0] * 6.666666666666666e-1;
+        angle + 3.141592653589793
+    }
+
+    pub fn random(rng: &mut impl Rng) -> Self {
+        const MAX: f64 = HomochoricVector::max_norm();
+        const SQMAX: f64 = MAX * MAX;
+        let mut v = Vector3::from_fn(|_, _| rng.gen_range(-MAX..MAX));
+        while v.norm_squared() >= SQMAX {
+            v = Vector3::from_fn(|_, _| rng.gen_range(-MAX..MAX));
+        }
+        Self(v)
+    }
+}
+
+impl Deref for HomochoricVector {
+    type Target = Vector3<f64>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for HomochoricVector {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<RodriguesVector> for HomochoricVector {
+    fn from(r: RodriguesVector) -> Self {
+        let angle = r.angle();
+        Self::from_axis_angle(r.axis(), angle)
+    }
+}
+
+impl From<HomochoricVector> for RodriguesVector {
+    fn from(h: HomochoricVector) -> Self {
+        let angle = h.angle();
+        Self::from_axis_angle(h.axis(), angle)
     }
 }
