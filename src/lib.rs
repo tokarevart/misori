@@ -522,7 +522,7 @@ impl From<EulerAngles> for UnitQuat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RodriguesVector(Vector3<f64>);
+pub struct RodriguesVector(pub Vector3<f64>);
 
 impl RodriguesVector {
     pub fn axis(&self) -> UnitVector3<f64> {
@@ -572,7 +572,7 @@ impl From<RodriguesVector> for UnitQuat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HomochoricVector(Vector3<f64>);
+pub struct HomochoricVector(pub Vector3<f64>);
 
 impl HomochoricVector {
     pub const fn max_norm() -> f64 {
@@ -581,7 +581,7 @@ impl HomochoricVector {
     }
 
     pub fn from_axis_angle(axis: UnitVector3<f64>, angle: f64) -> Self {
-        Self(axis.into_inner() * (angle * 0.5).tan())
+        Self(axis.into_inner() * (0.75 * (angle - angle.sin())).powf(1.0 / 3.0))
     }
 
     pub fn axis(&self) -> UnitVector3<f64> {
@@ -690,25 +690,25 @@ impl HomochoricVector {
         }
         let mut angle 
                = fps[20] * 6.112282530164043e-6;
-        angle += fps[19] * 9.267752741652023e-6;
+        angle -= fps[19] * 9.267752741652023e-6;
         angle += fps[18] * 1.4099969031217735e-5;
-        angle += fps[17] * 2.153251679864619e-5;
+        angle -= fps[17] * 2.153251679864619e-5;
         angle += fps[16] * 3.3021277271825496e-5;
-        angle += fps[15] * 5.0878708492908895e-5;
+        angle -= fps[15] * 5.0878708492908895e-5;
         angle += fps[14] * 7.881226624062063e-5;
-        angle += fps[13] * 1.228221720802075e-4;
+        angle -= fps[13] * 1.228221720802075e-4;
         angle += fps[12] * 1.9275708920062694e-4;
-        angle += fps[11] * 3.0494143294350633e-4;
+        angle -= fps[11] * 3.0494143294350633e-4;
         angle += fps[10] * 4.8716771278701815e-4;
-        angle += fps[ 9] * 7.867280184083877e-4;
+        angle -= fps[ 9] * 7.867280184083877e-4;
         angle += fps[ 8] * 1.2899836568644315e-3;
-        angle += fps[ 7] * 2.1448108592074656e-3;
+        angle -= fps[ 7] * 2.1448108592074656e-3;
         angle += fps[ 6] * 3.6722908374677956e-3;
-        angle += fps[ 5] * 6.359511106508804e-3;
+        angle -= fps[ 5] * 6.359511106508804e-3;
         angle += fps[ 4] * 1.1926991336982563e-2;
-        angle += fps[ 3] * 2.1581693528033647e-2;
+        angle -= fps[ 3] * 2.1581693528033647e-2;
         angle += fps[ 2] * 5.299053763905835e-2;
-        angle += fps[ 1] * 9.200967334058098e-2;
+        angle -= fps[ 1] * 9.200967334058098e-2;
         angle += fps[ 0] * 7.413890898193597e-1;
         angle + 2.4954725969130944
     }

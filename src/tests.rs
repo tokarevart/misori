@@ -80,6 +80,33 @@ fn test_fund_angles_and_euler_angles_conversion() {
     }
 }
 
+#[test]
+fn test_rodrigues_and_quaternion_conversion() {
+    use approx::assert_relative_eq;
+
+    let mut rng = Pcg64::seed_from_u64(0);
+    for _ in 0..100_000 {
+        let h = HomochoricVector::random(&mut rng);
+        let r = RodriguesVector::from(h);
+        let q = UnitQuat::from(r);
+        let back = RodriguesVector::from(q);
+        assert_relative_eq!(r.0, back.0, max_relative = f64::EPSILON * 1e3);
+    }
+}
+
+#[test]
+fn test_rodrigues_and_homochoric_conversion() {
+    use approx::assert_relative_eq;
+
+    let mut rng = Pcg64::seed_from_u64(0);
+    for _ in 0..100_000 {
+        let h = HomochoricVector::random(&mut rng);
+        let r = RodriguesVector::from(h);
+        let back = HomochoricVector::from(r);
+        assert_relative_eq!(h.0, back.0, epsilon = f64::EPSILON * 10.0);
+    }
+}
+
 
 
 impl AbsDiffEq for EulerAngles {

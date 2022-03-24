@@ -518,12 +518,12 @@ fn main5() {
 fn main() {
     // main4();
 
-    let center = Vector3::new(0.3, 0.3, 0.0);
-    let radius = 0.02;
-    let num_oris = 10000;
-    write_random_orientations_in_rodrigues_sphere_mtex_euler(
-        num_oris, center, radius, "orientations-euler.out"
-    );
+    // let center = Vector3::new(0.3, 0.3, 0.0);
+    // let radius = 0.02;
+    // let num_oris = 10000;
+    // write_random_orientations_in_rodrigues_sphere_mtex_euler(
+    //     num_oris, center, radius, "orientations-euler.out"
+    // );
 
     // write_cells_center_orientations_mtex_euler(10, "orientations-euler.out");
     // write_cells_random_orientations_mtex_euler(10, "orientations-euler.out");
