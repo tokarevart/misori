@@ -103,7 +103,7 @@ fn test_rodrigues_and_homochoric_conversion() {
         let h = HomochoricVector::random(&mut rng);
         let r = RodriguesVector::from(h);
         let back = HomochoricVector::from(r);
-        assert_relative_eq!(h.0, back.0, epsilon = f64::EPSILON * 10.0);
+        assert_relative_eq!(h.0, back.0, max_relative = f64::EPSILON * 1e3);
     }
 }
 
