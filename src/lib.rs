@@ -14,6 +14,7 @@ use rand_pcg::Pcg64;
 pub use fnd::FundAngles;
 
 pub type UnitQuat = UnitQuaternion<f64>;
+pub type UnitVec3 = UnitVector3<f64>;
 
 pub mod fnd;
 pub mod mis_opt;
@@ -525,7 +526,7 @@ impl From<EulerAngles> for UnitQuat {
 pub struct RodriguesVector(pub Vector3<f64>);
 
 impl RodriguesVector {
-    pub fn axis(&self) -> UnitVector3<f64> {
+    pub fn axis(&self) -> UnitVec3 {
         UnitVector3::new_normalize(self.0)
     }
 
@@ -533,7 +534,7 @@ impl RodriguesVector {
         self.norm().atan() * 2.0
     }
 
-    pub fn from_axis_angle(axis: UnitVector3<f64>, angle: f64) -> Self {
+    pub fn from_axis_angle(axis: UnitVec3, angle: f64) -> Self {
         Self(axis.into_inner() * (angle * 0.5).tan())
     }
 }
@@ -580,11 +581,11 @@ impl HomochoricVector {
         1.3306700394914686
     }
 
-    pub fn from_axis_angle(axis: UnitVector3<f64>, angle: f64) -> Self {
+    pub fn from_axis_angle(axis: UnitVec3, angle: f64) -> Self {
         Self(axis.into_inner() * (0.75 * (angle - angle.sin())).powf(1.0 / 3.0))
     }
 
-    pub fn axis(&self) -> UnitVector3<f64> {
+    pub fn axis(&self) -> UnitVec3 {
         UnitVector3::new_normalize(self.0)
     }
 

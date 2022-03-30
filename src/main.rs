@@ -1,5 +1,4 @@
 use misori::mis_opt::Histogram;
-use nalgebra::Vector3;
 use rand_pcg::Pcg64;
 use statrs::distribution::Continuous;
 use statrs::distribution::Uniform as StatUniform;
