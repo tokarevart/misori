@@ -248,17 +248,49 @@ pub fn write_random_orientations_in_rodrigues_sphere_mtex_euler(
     }
 }
 
-// write as if grains of a certain polycrystal have random orientations
-pub fn write_random_orientations_mtex_euler(
-    g: &PolyGraph, path: &str, rng: &mut impl Rng
+pub fn write_random_orientations_in_homochoric_sphere_mtex_euler(
+    num_oris: usize, center: Vector3<f64>, radius: f64, path: &str
 ) {
+    let mut file = File::create(path).unwrap();
+    let mut rng = Pcg64::seed_from_u64(0);
+    for _ in 0..num_oris {
+        let homo = HomochoricVector(random_vector_in_sphere(center, radius, &mut rng));
+        let rod = RodriguesVector::from(homo);
+        let q = UnitQuat::from(rod);
+        writeln_euler_angles_mtex_euler(
+            EulerAngles::from(q), 
+            1.0, 
+            &mut file
+        );
+    }
+}
+
+// write as if grains of a certain polycrystal have random orientations
+pub fn write_graph_random_orientations_mtex_euler(
+    g: &PolyGraph, path: &str
+) {
+    let mut rng = Pcg64::seed_from_u64(0);
     let mut file = File::create(path).unwrap();
     let total_vol: f64 = g.node_weights().map(|w| w.volume).sum();
     let inv_avg_vol = g.node_count() as f64 / total_vol;
     for w in g.node_weights() {
         writeln_euler_angles_mtex_euler(
-            EulerAngles::random(rng), 
+            EulerAngles::random(&mut rng), 
             w.volume * inv_avg_vol, 
+            &mut file
+        );
+    }
+}
+
+pub fn write_random_orientations_mtex_euler(
+    num_oris: usize, path: &str
+) {
+    let mut rng = Pcg64::seed_from_u64(0);
+    let mut file = File::create(path).unwrap();
+    for _ in 0..num_oris {
+        writeln_euler_angles_mtex_euler(
+            EulerAngles::random(&mut rng), 
+            1.0, 
             &mut file
         );
     }
