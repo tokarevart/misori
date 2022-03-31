@@ -116,10 +116,7 @@ impl Histogram {
     }
 }
 
-fn misorientation_angle(
-    o1: UnitQuat, o2: UnitQuat, 
-    syms: &Vec<UnitQuat>
-) -> f64 {
+fn misorientation_angle(o1: UnitQuat, o2: UnitQuat, syms: &[UnitQuat]) -> f64 {
     let r = o1.rotation_to(&o2);
     if r.w > 1.0 - f32::EPSILON as f64 {
         0.0
@@ -131,10 +128,7 @@ fn misorientation_angle(
     }
 }
 
-fn update_angle(
-    g: &mut PolyGraph, e: EdgeIndex, syms: &Vec<UnitQuat>
-) -> f64 {
-
+fn update_angle(g: &mut PolyGraph, e: EdgeIndex, syms: &[UnitQuat]) -> f64 {
     let (n1, n2) = g.edge_endpoints(e).unwrap();
     let (o1, o2) = (g[n1].orientation.quat, g[n2].orientation.quat);
     let prev_angle = g[e].angle;
@@ -145,10 +139,7 @@ fn update_angle(
     prev_angle
 }
 
-fn update_grain_angles(
-    g: &mut PolyGraph, n: NodeIndex, syms: &Vec<UnitQuat>
-) -> Vec<f64> {
-
+fn update_grain_angles(g: &mut PolyGraph, n: NodeIndex, syms: &[UnitQuat]) -> Vec<f64> {
     let edges: Vec<_> = g.edges(n).map(|e| e.id()).collect();
     let mut prev_angles = Vec::with_capacity(edges.len());
     for e in edges {
@@ -157,7 +148,7 @@ fn update_grain_angles(
     prev_angles
 }
 
-pub fn update_angles(g: &mut PolyGraph, syms: &Vec<UnitQuat>) {
+pub fn update_angles(g: &mut PolyGraph, syms: &[UnitQuat]) {
     for e in g.edge_indices() {
         update_angle(g, e, syms);
     }
@@ -174,7 +165,7 @@ pub fn angle_area_vec(g: &PolyGraph) -> Vec<AngleArea> {
     g.edge_weights().map(|&e| e).collect()
 }
 
-pub fn max_gap(sorted_pairs: &Vec<AngleArea>) -> f64 {
+pub fn max_gap(sorted_pairs: &[AngleArea]) -> f64 {
     let mut max_gap = 0.0;
     let mut prev_angle = sorted_pairs.first().unwrap().angle;
     for &AngleArea{ angle, .. } in sorted_pairs.iter().skip(1) {
@@ -238,7 +229,7 @@ impl<'a> Swapper<'a> {
     fn update_hist_with_2grains_new_angles(
         hist: &mut Histogram, g: &PolyGraph, 
         grain1_idx: NodeIndex, grain2_idx: NodeIndex, 
-        prev_angles1: &Vec<f64>, prev_angles2: &Vec<f64>,
+        prev_angles1: &[f64], prev_angles2: &[f64],
     ) -> Histogram {
 
         let prev_hist = hist.clone();
@@ -269,7 +260,7 @@ impl<'a> Swapper<'a> {
 
     pub fn swap(
         &mut self, grains: (NodeIndex, NodeIndex), g: &mut PolyGraph, 
-        hist: &mut Histogram, syms: &Vec<UnitQuat>
+        hist: &mut Histogram, syms: &[UnitQuat]
     ) -> SwapOptResult {
     
         let (grain1_idx, grain2_idx) = grains;        
@@ -343,7 +334,7 @@ impl<'a> Rotator<'a> {
     }
 
     fn update_hist_with_grain_new_angles(
-        hist: &mut Histogram, g: &PolyGraph, n: NodeIndex, prev_angles: &Vec<f64>
+        hist: &mut Histogram, g: &PolyGraph, n: NodeIndex, prev_angles: &[f64]
     ) -> Histogram {
 
         let prev_hist = hist.clone();
@@ -356,7 +347,7 @@ impl<'a> Rotator<'a> {
 
     pub fn rotate(
         &mut self, mode: RotationMode, grain_idx: NodeIndex, g: &mut PolyGraph, 
-        hist: &mut Histogram, syms: &Vec<UnitQuat>, rng: &mut impl Rng, 
+        hist: &mut Histogram, syms: &[UnitQuat], rng: &mut impl Rng, 
     ) -> RotationOptResult {
         
         let prev_ori = if let RotationMode::Start = mode {

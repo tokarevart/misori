@@ -2,7 +2,7 @@ use crate::*;
 use rand_pcg::Pcg64;
 use approx::*;
 
-fn rotate_to_fund_domain(o: UnitQuat, syms: &Vec<UnitQuat>) -> UnitQuat {
+fn rotate_to_fund_domain(o: UnitQuat, syms: &[UnitQuat]) -> UnitQuat {
     let mut res = None;
     for s in syms {
         let q = s * o;
