@@ -1,6 +1,7 @@
-use crate::{Grain, EulerAngles, UnitQuat, PolyGraph};
+use crate::{Grain, EulerAngles, UnitQuat, PolyGraph, Vector3};
+use nalgebra::{Matrix3};
 use rand::prelude::*;
-use std::f64::consts::*;
+use std::{f64::consts::*};
 
 const TWOPI: f64 = 6.283185307179586;
 const INV_TWOPI: f64 = 1.0 / TWOPI;
@@ -267,6 +268,151 @@ impl FundGrid {
     }
 }
 
-//
+pub type Tetr = [Vector3<f64>; 4];
 
+#[derive(Debug, Clone, Copy)]
+pub struct TetrCell{ 
+    pub org: Vector3<f64>,
+    pub pts: [Vector3<f64>; 3],
+    pub matr: Matrix3<f64>,
+    pub vol: f64,
+    pub dens: f64,
+}
 
+impl TetrCell {
+    pub fn new(tetr: &Tetr, dens: f64) -> Self {
+        let org = tetr[0];
+        let pts = [
+            tetr[1] - org, 
+            tetr[2] - org, 
+            tetr[3] - org,
+        ];
+        Self {
+            org, pts,
+            matr: Self::tetr_coor_matr(&pts),
+            vol: Self::volume(&pts),
+            dens,
+        }
+    }
+
+    fn volume(pts: &[Vector3<f64>; 3]) -> f64 {
+        pts[0].cross(&pts[1]).dot(&pts[2]).abs() / 6.0
+    }
+
+    fn tetr_coor_matr(pts: &[Vector3<f64>; 3]) -> Matrix3<f64> {
+        Matrix3::from_columns(pts)
+            .try_inverse()
+            .unwrap()
+            .transpose()
+    }
+
+    pub fn point_inside(&self, p: Vector3<f64>) -> bool {
+        let p1: Vector3<f64> = p - self.org;
+        let np: Vector3<f64> = Vector3::from_column_slice(
+            &self.matr.column_iter().map(
+                |c| c.dot(&p1)
+            ).collect::<Vec<_>>()
+        );
+        np.iter().all(|&x| x >= 0.0) 
+        && np.iter().all(|&x| x <= 1.0) 
+        && np.iter().sum::<f64>() <= 1.0
+    }
+
+    pub fn random_point(&self, rng: &mut impl Rng) -> Vector3<f64> {
+        let c0 = rng.gen_range(0.0..1.0f64);
+        let mut c1 = rng.gen_range(0.0..1.0f64);;
+        while c0 + c1 > 1.0 {
+            c1 = rng.gen_range(0.0..1.0f64);
+        }
+        let mut c2 = rng.gen_range(0.0..1.0f64);
+        while c0 + c1 + c2 > 1.0 {
+            c2 = rng.gen_range(0.0..1.0f64);
+        }
+        self.org + self.pts[0] * c0 + self.pts[1] * c1 + self.pts[2] * c2
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FundMesh {
+    pub cells: Vec<TetrCell>,
+}
+
+impl FundMesh {
+    pub fn new() -> Self {
+        Self{ cells: Vec::new() }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self{ cells: Vec::with_capacity(capacity) }
+    }
+
+    pub fn add_tetr(&mut self, tetr: &Tetr, dens: f64) {
+        self.cells.push(TetrCell::new(tetr, dens));
+    }
+
+    pub fn add_from_tetr_slice(&mut self, tetrs_dens: &[(Tetr, f64)]) {
+        self.cells.reserve(tetrs_dens.len());
+        for (tetr, dens) in tetrs_dens {
+            self.add_tetr(tetr, *dens)
+        }
+    }
+
+    pub fn from_tetr_slice(tetrs_dens: &[(Tetr, f64)]) -> Self {
+        let mut mesh = Self::with_capacity(tetrs_dens.len());
+        mesh.add_from_tetr_slice(tetrs_dens);
+        mesh
+    }
+
+    pub fn total_volume(&self) -> f64 {
+        self.cells.iter().map(|x| x.vol).sum()
+    }
+
+    pub fn normalize_volume(&mut self) {
+        let invlen = 1.0 / self.total_volume().powf(1.0 / 3.0);
+        for cell in self.cells.iter_mut() {
+            cell.org *= invlen;
+            for x in cell.pts.iter_mut() {
+                *x *= invlen;
+            }
+        }
+    }
+
+    pub fn add_dens(&mut self, tetr_idx: usize, dens: f64) {
+        self.cells[tetr_idx].dens += dens;
+    }
+
+    pub fn add_from_dens_slice(&mut self, denses: &[(usize, f64)]) {
+        for &(idx, dens) in denses {
+            self.add_dens(idx, dens)
+        }
+    }
+
+    pub fn total_density(&self) -> f64 {
+        self.cells.iter().map(|x| x.dens).sum()
+    }
+
+    pub fn normalize_density(&mut self) {
+        let invdens = 1.0 / self.total_density();
+        for cell in self.cells.iter_mut() {
+            cell.dens *= invdens;
+        }
+    }
+
+    pub fn random_cell_idx(&self, rng: &mut impl Rng) -> usize {
+        rng.gen_range(0..self.cells.len())
+    }
+
+    pub fn random_cell(&self, rng: &mut impl Rng) -> &TetrCell {
+        let idx = self.random_cell_idx(rng);
+        &self.cells[idx]
+    }
+
+    pub fn random_cell_mut(&mut self, rng: &mut impl Rng) -> &mut TetrCell {
+        let idx = self.random_cell_idx(rng);
+        &mut self.cells[idx]
+    }
+
+    pub fn random_point(&self, rng: &mut impl Rng) -> Vector3<f64> {
+        self.random_cell(rng).random_point(rng)
+    }
+}
