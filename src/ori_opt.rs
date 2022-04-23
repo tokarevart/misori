@@ -13,26 +13,50 @@ pub fn texture_index(grid: &fnd::FundGrid) -> f64 {
         .sum::<f64>() * grid.dvol
 }
 
-fn squared_error_at(d: f64, grid: &fnd::FundGrid) -> f64 {
-    let d = d / grid.dvol;
+fn squared_error_at(d: f64, cellidx: usize, mesh: &fnd::FundMesh) -> f64 {
+    let d = d / mesh.cells[cellidx].vol;
     let e = 1.0 - d;
     e * e
 }
 
-pub fn squared_error(grid: &fnd::FundGrid) -> f64 {
-    grid.cells.iter().flatten().flatten()
-        .map(|&d| squared_error_at(d, grid))
+fn squared_averror_at(d: f64, avvol: f64, mesh: &fnd::FundMesh) -> f64 {
+    let d = d / avvol;
+    let e = 1.0 - d;
+    e * e
+}
+
+pub fn squared_error(mesh: &fnd::FundMesh) -> f64 {
+    mesh.cells.iter().enumerate()
+        .map(|(i, c)| squared_error_at(c.dens, i, mesh))
         .sum::<f64>()
 }
 
-pub fn mean_squared_error(grid: &fnd::FundGrid) -> f64 {
-    grid.cells.iter().flatten().flatten()
-        .map(|&d| squared_error_at(d, grid))
-        .sum::<f64>() * grid.dvol
+pub fn squared_averror(mesh: &fnd::FundMesh) -> f64 {
+    let avvol = mesh.total_volume() / mesh.cells.len() as f64;
+    mesh.cells.iter().enumerate()
+        .map(|(i, c)| squared_averror_at(c.dens, avvol, mesh))
+        .sum::<f64>()
 }
 
-fn mean_squared_error_at(d: f64, grid: &fnd::FundGrid) -> f64 {
-    squared_error_at(d, grid) * grid.dvol
+pub fn mean_squared_error(mesh: &fnd::FundMesh) -> f64 {
+    mesh.cells.iter().enumerate()
+        .map(|(i, c)| squared_error_at(c.dens, i, mesh) * c.vol)
+        .sum::<f64>()
+}
+
+pub fn mean_squared_averror(mesh: &fnd::FundMesh) -> f64 {
+    let avvol = mesh.total_volume() / mesh.cells.len() as f64;
+    mesh.cells.iter().enumerate()
+        .map(|(i, c)| squared_averror_at(c.dens, avvol, mesh) * c.vol)
+        .sum::<f64>()
+}
+
+fn mean_squared_error_at(d: f64, cellidx: usize, mesh: &fnd::FundMesh) -> f64 {
+    squared_error_at(d, cellidx, mesh) * mesh.cells[cellidx].vol
+}
+
+fn mean_squared_averror_at(d: f64, avvol: f64, mesh: &fnd::FundMesh) -> f64 {
+    squared_averror_at(d, avvol, mesh) * avvol
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -57,13 +81,13 @@ pub struct Rotator {
 }
 
 impl Rotator {
-    pub fn new(grid: &fnd::FundGrid) -> Self {
-        Self{ backup: None, mse: mean_squared_error(grid) }
+    pub fn new(mesh: &fnd::FundMesh) -> Self {
+        Self{ backup: None, mse: mean_squared_averror(mesh) }
     }
 
     pub fn rotate(
         &mut self, mode: RotationMode, grain_idx: NodeIndex, g: &mut PolyGraph, 
-        grid: &mut fnd::FundGrid, rng: &mut impl Rng,
+        mesh: &mut fnd::FundMesh, rng: &mut impl Rng,
     ) -> RotationOptResult {
         
         let vol = g[grain_idx].volume;

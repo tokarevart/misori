@@ -320,7 +320,7 @@ impl TetrCell {
 
     pub fn random_point(&self, rng: &mut impl Rng) -> Vector3<f64> {
         let c0 = rng.gen_range(0.0..1.0f64);
-        let mut c1 = rng.gen_range(0.0..1.0f64);;
+        let mut c1 = rng.gen_range(0.0..1.0f64);
         while c0 + c1 > 1.0 {
             c1 = rng.gen_range(0.0..1.0f64);
         }

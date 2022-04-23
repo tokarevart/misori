@@ -76,7 +76,7 @@ fn main1() {
     let distrfn = |x| lognorm.pdf(x);
     let mut swapper = mis_opt::Swapper::new_with_distr(&hist, &distrfn);
     for i in 0..2_000_000 {
-        if let SwapOptResult::MoreOptimal(error) = swapper.swap(
+        if let SwapOptResult::MoreOptimal{ criterion: error } = swapper.swap(
             misori::random_grains2(&g, &mut rng),
             &mut g, &mut hist, &syms
         ) {
@@ -120,37 +120,43 @@ fn main2() {
     let uni = StatUniform::new(misang_range.start, misang_range.end).unwrap();
     let lognorm = StatLogNormal::new(-1.0, 0.5).unwrap();
     
-    // let now = Instant::now();
-    // for i in 0..1_000_000 {
-    //     if let Some(error) = iterate_swaps(
-    //         &mut g, &mut hist, &syms, &mut rng, |x| lognorm.pdf(x)
-    //     ) {
-    //         // println!("iter {}, norm {}", i, error);
-    //     }
-    // }
-    // println!(
-    //     "swaps alg time:        {}, norm {}", 
-    //     now.elapsed().as_secs_f64(), diff_norm(&mut hist, |x| lognorm.pdf(x))
-    // );
-
     let now = Instant::now();
     let distr = |x| lognorm.pdf(x);
-    let mut rotator = mis_opt::Rotator::new_with_distr(&hist,  &distr);
+    let mut swapper = mis_opt::Swapper::new_with_distr(&hist,  &distr);
+    
     for i in 0..3_000_000 {
-        if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
-            RotationMode::Start,
-            misori::random_grain(&g, &mut rng),
-            &mut g, &mut hist, &syms, &mut rng
+        if let SwapOptResult::MoreOptimal{ criterion: error, .. } = swapper.swap(
+            misori::random_grains2(&g, &mut rng),
+            &mut g, &mut hist, &syms,
         ) {
             // println!("iter {}, norm {}", i, error);
         } else {
-            rotator.undo(&mut g, &mut hist);
+            swapper.undo(&mut g, &mut hist);
         }
     }
     println!(
-        "rotations alg time: {}, error {}", 
+        "swaps alg time: {}, error {}", 
         now.elapsed().as_secs_f64(), mis_opt::mean_squared_error(&mut hist, |x| lognorm.pdf(x))
     );
+
+    // let now = Instant::now();
+    // let distr = |x| lognorm.pdf(x);
+    // let mut rotator = mis_opt::Rotator::new_with_distr(&hist,  &distr);
+    // for i in 0..3_000_000 {
+    //     if let RotationOptResult::MoreOptimal{ criterion: error, .. } = rotator.rotate(
+    //         RotationMode::Start,
+    //         misori::random_grain(&g, &mut rng),
+    //         &mut g, &mut hist, &syms, &mut rng
+    //     ) {
+    //         // println!("iter {}, norm {}", i, error);
+    //     } else {
+    //         rotator.undo(&mut g, &mut hist);
+    //     }
+    // }
+    // println!(
+    //     "rotations alg time: {}, error {}", 
+    //     now.elapsed().as_secs_f64(), mis_opt::mean_squared_error(&mut hist, |x| lognorm.pdf(x))
+    // );
 
     let mut file = File::create("hist.txt").unwrap();
     for (angle, density) in hist.pairs() {
@@ -159,6 +165,8 @@ fn main2() {
 
     write_orientations_mtex_euler(&g, "orientations-euler.out");
 }
+
+/* disable ori_opt for now
 
 fn main3() {
     let bnds = parse_bnds("bnds-10k.stface");
@@ -514,6 +522,8 @@ fn main5() {
 }
 
 //
+
+*/
 
 fn main() {
     // main4();

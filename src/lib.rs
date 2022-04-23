@@ -18,7 +18,7 @@ pub type UnitVec3 = UnitVector3<f64>;
 
 pub mod fnd;
 pub mod mis_opt;
-pub mod ori_opt;
+// pub mod ori_opt;
 #[cfg(test)]
 mod tests;
 
@@ -58,8 +58,12 @@ pub enum RotationOptResult {
 }
 
 pub enum SwapOptResult {
-    MoreOptimal(f64),
-    SameOrLessOptimal(f64),
+    MoreOptimal{
+        criterion: f64
+    },
+    SameOrLessOptimal{
+        criterion: f64
+    },
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -283,9 +283,9 @@ impl<'a> Swapper<'a> {
 
         let error = (self.loss_fn)(hist);
         if error < prev_error {
-            SwapOptResult::MoreOptimal(error)
+            SwapOptResult::MoreOptimal{ criterion: error }
         } else {
-            SwapOptResult::SameOrLessOptimal(error)
+            SwapOptResult::SameOrLessOptimal{ criterion: error }
         }
     }
 
